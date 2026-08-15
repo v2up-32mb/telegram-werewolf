@@ -18,6 +18,10 @@ type State struct {
 	Day     DayState
 	Vote    VoteState
 	Settled SettledState
+
+	// Processed 记录已受理的 Command ID，用于拒绝重复 Command
+	// （防止重复结算，docs/技术选型.md §13.2）。
+	Processed map[string]bool
 }
 
 // LobbyState 是等待大厅阶段的配置快照。
@@ -85,6 +89,11 @@ func (s State) Copy() State {
 	c.Vote.Ballots = make(map[Seat]Seat, len(s.Vote.Ballots))
 	for from, to := range s.Vote.Ballots {
 		c.Vote.Ballots[from] = to
+	}
+
+	c.Processed = make(map[string]bool, len(s.Processed))
+	for id := range s.Processed {
+		c.Processed[id] = true
 	}
 
 	return c

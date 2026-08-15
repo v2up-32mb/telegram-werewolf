@@ -16,4 +16,5 @@ type Player struct {
 	UserID UserID
 	Seat   Seat
 	Role   Role
+	Dead   bool // 是否已死亡；零值 false 表示存活
 }
