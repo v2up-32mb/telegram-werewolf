@@ -1,0 +1,48 @@
+# Telegram 狼人杀 Bot —— zh-CN 文案（MVP 首批）
+# key 语义化命名；{{.X}} 为模板参数，渲染时默认转义。
+# 私密标记约定见 docs/阶段消息设计.md §5：
+# - 普通文字：Emoji + 明文（mark.*）
+# - 按钮：座位号 + Emoji 短标记（button.seat），Emoji 紧贴座位号、无占位。
+
+# 系统错误
+error.generic: "出错了，请稍后重试"
+error.invalid_input: "输入无效：{{.Detail}}"
+
+# 主菜单
+menu.main: |
+  欢迎使用狼人杀 Bot！
+  输入 /new 创建房间，/join 加入房间。
+
+# 阶段消息
+phase.night.title: "🌙 第 {{.PhaseNumber}} 夜"
+phase.day.title: "☀️ 第 {{.PhaseNumber}} 天"
+phase.private_record.header: "【我的私密记录】"
+phase.god_view.header: "【上帝视角记录】"
+phase.time_left: "本阶段限时：{{.Seconds}} 秒"
+
+# 角色操作（临时操作提示）
+action.wolf.kill.prompt: "请选择要击杀的玩家："
+action.seer.check.prompt: "请选择要查验的玩家："
+action.witch.save.prompt: "是否使用解药："
+action.vote.prompt: "请投票给要放逐的玩家："
+
+# 顶部通知
+notice.top: "📢 {{.Message}}"
+
+# 健康提示
+health.alive: "服务运行正常"
+
+# 普通文字私密标记（Emoji + 明文）
+mark.good_seer: "🟢 好人"
+mark.wolf_seer: "🐺 狼人"
+mark.wolfmate: "🐺 狼队友"
+mark.role.villager: "👤 平民"
+mark.role.werewolf: "🐺 狼人"
+mark.role.seer: "🔮 预言家"
+mark.role.witch: "💊 女巫"
+
+# 按钮短标记：座位号 + Emoji（按钮为纯文本，Emoji 紧贴座位号）
+button.seat: "{{.Seat}}号{{.Mark}}"
+
+# 身份卡
+role_card.caption: "你抽到了 {{.RoleName}}！请确认你的身份。"
