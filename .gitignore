@@ -1,0 +1,29 @@
+# 凭据与密钥（严禁入库）
+.env
+.env.*
+*.env
+*.pem
+*.key
+secrets.*
+config.local.*
+*.token
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+dist/
+build/
+
+# Node
+node_modules/
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
