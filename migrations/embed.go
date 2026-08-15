@@ -7,5 +7,5 @@ import "embed"
 
 // FS 嵌入全部 migration SQL，供测试与运行时迁移执行使用。
 //
-//go:embed 000001_initial.sql
+//go:embed *.sql
 var FS embed.FS
