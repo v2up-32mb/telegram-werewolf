@@ -30,3 +30,12 @@ Thumbs.db
 
 # Hermes 本地提示词
 .hermes/prompts/
+
+# Go 构建产物与本地数据
+.hermes/
+/bin/
+/data/
+*.db
+*.db-wal
+*.db-shm
+coverage.out
