@@ -27,3 +27,6 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+# Hermes 本地提示词
+.hermes/prompts/
