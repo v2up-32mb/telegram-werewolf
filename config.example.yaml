@@ -1,0 +1,26 @@
+# Telegram 狼人杀 Bot 配置示例
+#
+# 复制为 config.yaml 后使用；敏感值一律不进 YAML：
+#   TELEGRAM_BOT_TOKEN       Bot Token（必需）
+#   TELEGRAM_WEBHOOK_SECRET  Webhook Secret（仅预留；MVP 禁用 Webhook）
+#
+# 启动时对关键配置做显式校验，缺失或非法会直接报错退出。
+
+database_path: data/werewolf.db          # SQLite 数据库文件路径
+update_mode: polling                     # 更新接收方式；MVP 仅支持 Long Polling
+health_address: ""                       # 健康检查监听地址（/healthz、/readyz）；空字符串表示禁用，例如 ":8080"
+log_format: text                         # 日志格式：text（开发）| json（生产）
+default_locale: zh-CN                    # MVP 仅交付 zh-CN
+
+outbox:
+  global_rate_limit_per_second: 20       # 全局发送限速（条/秒）
+  per_chat_rate_limit_per_second: 2      # 单 Chat 发送限速（条/秒）
+  send_timeout: 10s                      # 单条发送超时
+  retry_interval: 1s                     # 失败重试间隔
+  max_retries: 5                         # 最大重试次数
+
+# 预留接入边界；MVP 禁止启用（enabled 必须保持 false，否则启动校验失败）
+webhook:
+  enabled: false
+  address: ""
+  secret: ""                             # 敏感值：仅环境变量 TELEGRAM_WEBHOOK_SECRET
