@@ -29,6 +29,15 @@ func (r reducer) Reduce(state State, cmd Command) (State, []Effect, error) {
 	if err := validate(state, cmd, meta); err != nil {
 		return state, nil, err
 	}
+	// 跨阶段命令：自爆与游戏内退出可在多个主阶段受理，由各自 reducer
+	// 校验自爆专用边界（白天 + 狼人）与游戏内退出边界（非大厅阶段）后
+	// 再进入领域流程（explode.go / leave.go）。
+	switch cmd.(type) {
+	case ExplodeCommand:
+		return r.explode(state, cmd.(ExplodeCommand))
+	case LeaveGameCommand:
+		return r.leaveGame(state, cmd.(LeaveGameCommand))
+	}
 	// 分派到阶段 reducer。已实现的阶段（Lobby 开始 / Deal 确认与超时）
 	// 进入 deal.go 的领域流程；其余阶段返回明确错误且不修改状态。
 	switch state.Phase {
@@ -65,7 +74,19 @@ func (r reducer) Reduce(state State, cmd Command) (State, []Effect, error) {
 			case TieFinal:
 				return r.tieFinalTimeout(state, c)
 			default:
-				return r.voteTimeout(state, c)
+				// 收票窗口超时（docs「超时与默认选择」）：先维护连续超时
+				// 计数（未确认存活玩家 +1、已确认清零、达到阈值预警/
+				// 强制移除），再把未确认者按弃权结算（docs 游戏流程设计.md
+				// §恶意退出判定 ②：连续 3 次超时强制移除）。
+				st1, fx1, err := r.advanceTimeoutStreaks(state, c.Meta.ReceivedAt, unconfirmedVoters(state))
+				if err != nil {
+					return state, nil, err
+				}
+				after, fx2, err := r.voteTimeout(st1, c)
+				if err != nil {
+					return state, nil, err
+				}
+				return after, append(fx1, fx2...), nil
 			}
 		case LastWordsCommand:
 			return r.lastWords(state, c)
@@ -142,6 +163,10 @@ func commandMeta(cmd Command) (CommandMeta, error) {
 	case LastWordsCommand:
 		return c.Meta, nil
 	case TimeoutCommand:
+		return c.Meta, nil
+	case ExplodeCommand:
+		return c.Meta, nil
+	case LeaveGameCommand:
 		return c.Meta, nil
 	default:
 		return CommandMeta{}, ErrUnknownCommand

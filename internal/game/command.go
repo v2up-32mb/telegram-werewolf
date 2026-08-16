@@ -195,3 +195,24 @@ type TimeoutCommand struct {
 }
 
 func (TimeoutCommand) command() {}
+
+// ExplodeCommand 是狼人白天自爆（docs 游戏流程设计.md §狼人自爆、§投票 5）：
+// 仅存活狼人可在白天任意时刻（PhaseDaySpeech/PhaseDayVote，含平票轮与
+// 遗言窗口）发起；自爆优先打断发言/投票并直接进入黑夜（已投票作废、
+// 无遗言）。自爆不是退出：Left 不置位（区分 leave.go 狼人白天退出按自爆
+// 的主动退出路径）。
+type ExplodeCommand struct {
+	Meta CommandMeta
+}
+
+func (ExplodeCommand) command() {}
+
+// LeaveGameCommand 是游戏进行中玩家主动退出（docs 游戏流程设计.md
+// §恶意退出判定、§狼人自爆 2）：狼人白天退出按自爆处理；夜间退出按
+// 恶意退出死亡公告（不误导身份）；其余存活主动退出标记死亡并触发
+// 10 分钟跨局加入冷却。大厅等非游戏阶段拒绝（走大厅退出流程）。
+type LeaveGameCommand struct {
+	Meta CommandMeta
+}
+
+func (LeaveGameCommand) command() {}

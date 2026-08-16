@@ -171,3 +171,10 @@ last_words.prompt: |
   你已被放逐，可在 30 秒内发表最后的遗言。
   截止时刻：{{.Deadline}}
 last_words.published: "💬 遗言（{{.Seat}}）：{{.Text}}"
+
+# 狼人自爆与恶意退出（docs 游戏流程设计.md §狼人自爆、§恶意退出判定、
+# §投票 5、§退出约束；重大事件只写当前时间段主消息，不额外发送永久事件消息）
+wolves.explode: "💥 {{.Seat}} 号狼人自爆了！自爆优先，已投出的票全部作废，直接进入黑夜。"
+leave.malicious: "⚠️ {{.Seat}} 号恶意退出，按死亡处理。"
+leave.timeout_warning: "⏰ 你已连续超时 {{.Streak}} 次，再超时 {{.Remaining}} 次将被强制退出。"
+leave.removed: "🚫 {{.Seat}} 号因连续超时被强制移除。"
