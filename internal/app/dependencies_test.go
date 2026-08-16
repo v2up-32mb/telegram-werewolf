@@ -33,10 +33,11 @@ func TestLockedDependencies(t *testing.T) {
 	if st.module != "github.com/v2up-32mb/telegram-werewolf" {
 		t.Errorf("module 行 = %q，want %q", st.module, "github.com/v2up-32mb/telegram-werewolf")
 	}
-	// 真实状态：goose v3.27.3 的 go.mod 要求 go >= 1.25.7，
-	// go get 已将 go 指令从 1.25.0 升级为 1.25.7（仍属 Go 1.25 基线）。
-	if st.goVer != "1.25.7" {
-		t.Errorf("go 指令 = %q，want %q", st.goVer, "1.25.7")
+	// 真实状态：goose v3.27.3 的 go.mod 要求 go >= 1.25.7；Task 43 的
+	// vulnerability 门禁经 govulncheck 检出 go1.25.7 标准库 15 个漏洞
+	// （修复版本最高 1.25.13），go 指令升级为 1.25.13（仍属 Go 1.25 基线）。
+	if st.goVer != "1.25.13" {
+		t.Errorf("go 指令 = %q，want %q", st.goVer, "1.25.13")
 	}
 
 	pinned := map[string]string{

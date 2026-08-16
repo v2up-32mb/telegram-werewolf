@@ -1,6 +1,6 @@
 module github.com/v2up-32mb/telegram-werewolf
 
-go 1.25.7
+go 1.25.13
 
 require (
 	github.com/go-telegram/bot v1.23.0
