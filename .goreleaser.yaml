@@ -1,0 +1,41 @@
+# GoReleaser v2 配置（Task 44：Release、GHCR 和多架构镜像）
+#
+# 发布产物：Linux amd64/arm64 原生二进制（CGO_ENABLED=0，符合技术选型 §3.1）
+# + sha256 校验和。本机不执行 Docker 构建；容器镜像由
+# .github/workflows/release.yml 通过 Buildx 多架构构建并推送 GHCR。
+
+version: 2
+
+project_name: telegram-werewolf
+
+builds:
+  - id: werewolf
+    main: ./cmd/werewolf
+    binary: werewolf
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: werewolf
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+release:
+  github:
+    owner: v2up-32mb
+    name: telegram-werewolf

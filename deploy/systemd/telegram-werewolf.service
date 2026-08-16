@@ -1,0 +1,63 @@
+# Telegram 狼人杀 Bot systemd 单元（Task 44 部署示例）
+#
+# 部署步骤（root）：
+#   1. 安装发布二进制到 /usr/local/bin/werewolf（GitHub Release 的
+#      werewolf_linux_amd64/arm64 产物，校验 checksums.txt）；
+#      或使用 ghcr.io/v2up-32mb/telegram-werewolf 镜像以容器方式运行。
+#   2. 创建专用非登录系统用户：
+#        useradd --system --no-create-home --home-dir /nonexistent \
+#                --shell /usr/sbin/nologin telegram-werewolf
+#   3. 放置配置与 Token（目录归 root，服务用户只读；Token 不写入仓库）：
+#        install -d -m 0755 /etc/telegram-werewolf
+#        install -m 0644 deploy/config.example.yaml /etc/telegram-werewolf/config.yaml
+#        install -o root -g telegram-werewolf -m 0640 /dev/null \
+#                /etc/telegram-werewolf/telegram-werewolf.env
+#        echo 'TELEGRAM_BOT_TOKEN=xxxx' \
+#                >> /etc/telegram-werewolf/telegram-werewolf.env
+#   4. 安装并启动：
+#        install -m 0644 deploy/systemd/telegram-werewolf.service /etc/systemd/system/
+#        systemctl daemon-reload && systemctl enable --now telegram-werewolf
+
+[Unit]
+Description=Telegram Werewolf bot (telegram-werewolf)
+Documentation=https://github.com/v2up-32mb/telegram-werewolf
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+User=telegram-werewolf
+Group=telegram-werewolf
+
+# StateDirectory 自动创建 /var/lib/telegram-werewolf（属主为服务用户），
+# 该数据目录是唯一允许写入的位置；其余系统目录保持只读。
+StateDirectory=telegram-werewolf
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/telegram-werewolf
+UMask=0077
+
+# Bot Token 等敏感值只经 EnvironmentFile 注入，不写入 unit 或仓库。
+# 行首 "-" 表示文件缺失时忽略（模板可先不放置）。
+EnvironmentFile=-/etc/telegram-werewolf/telegram-werewolf.env
+
+ExecStart=/usr/local/bin/werewolf serve --config /etc/telegram-werewolf/config.yaml
+
+Restart=on-failure
+RestartSec=5s
+SyslogIdentifier=telegram-werewolf
+
+# 安全加固：非 root、禁止提权、私有临时目录、系统目录只读。
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+RestrictRealtime=true
+
+[Install]
+WantedBy=multi-user.target

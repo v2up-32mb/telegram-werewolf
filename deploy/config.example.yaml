@@ -1,0 +1,26 @@
+# Telegram 狼人杀 Bot 部署配置示例（Task 44）
+#
+# 部署路径：/etc/telegram-werewolf/config.yaml（root:root，0644，服务用户可读）。
+# 与仓库根 config.example.yaml 同一 schema；差异仅在面向 systemd 部署的
+# 生产默认值（数据目录、日志格式）。
+# 敏感值（TELEGRAM_BOT_TOKEN 等）一律不进 YAML，只由
+# /etc/telegram-werewolf/telegram-werewolf.env（systemd EnvironmentFile）提供。
+
+database_path: /var/lib/telegram-werewolf/werewolf.db  # SQLite 数据库文件路径（systemd StateDirectory 数据目录）
+update_mode: polling                     # 更新接收方式；MVP 仅支持 Long Polling
+health_address: ""                       # 健康检查监听地址（/healthz、/readyz）；空字符串表示禁用，例如 ":8080"
+log_format: json                         # 日志格式：text（开发）| json（生产）
+default_locale: zh-CN                    # MVP 仅交付 zh-CN
+
+outbox:
+  global_rate_limit_per_second: 20       # 全局发送限速（条/秒）
+  per_chat_rate_limit_per_second: 2      # 单 Chat 发送限速（条/秒）
+  send_timeout: 10s                      # 单条发送超时
+  retry_interval: 1s                     # 失败重试间隔
+  max_retries: 5                         # 最大重试次数
+
+# 预留接入边界；MVP 禁止启用（enabled 必须保持 false，否则启动校验失败）
+webhook:
+  enabled: false
+  address: ""
+  secret: ""                             # 敏感值：仅环境变量 TELEGRAM_WEBHOOK_SECRET
