@@ -295,8 +295,8 @@ func TestGovernanceKickDropsTarget(t *testing.T) {
 	if !ok {
 		t.Fatalf("被踢者应触发跨局冷却：%v", effects)
 	}
-	if ce.Duration != LeaveCooldownSeconds || ce.Reason != LeaveReasonVoteKicked {
-		t.Fatalf("冷却 = %+v, want %v/LeaveReasonVoteKicked", ce, LeaveCooldownSeconds)
+	if ce.Duration != LeaveCooldown || ce.Reason != LeaveReasonVoteKicked {
+		t.Fatalf("冷却 = %+v, want %v/LeaveReasonVoteKicked", ce, LeaveCooldown)
 	}
 	if !hasPersist(effects, PersistGameLeave) {
 		t.Errorf("被踢者应产出 PersistGameLeave：%v", effects)

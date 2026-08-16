@@ -161,7 +161,7 @@ func dayGodView(r *i18n.Renderer, st game.State, viewer game.Seat, out game.DayO
 		if s == viewer {
 			mark = "（我）"
 		}
-		b.WriteString(fmt.Sprintf("%d号：%s%s\n", s, name, mark))
+		fmt.Fprintf(&b, "%d号：%s%s\n", s, name, mark)
 	}
 
 	// 本夜行动素材（只读上帝视角；来自既有 State 导出字段）。
@@ -170,7 +170,7 @@ func dayGodView(r *i18n.Renderer, st game.State, viewer game.Seat, out game.DayO
 		b.WriteString("✓ 女巫解药：已使用\n")
 	}
 	if st.Night.WitchUsedTonight && st.Night.WitchPoisonUsed && st.Night.WitchPoisonTarget != nil {
-		b.WriteString(fmt.Sprintf("✓ 女巫毒药：%d号\n", *st.Night.WitchPoisonTarget))
+		fmt.Fprintf(&b, "✓ 女巫毒药：%d号\n", *st.Night.WitchPoisonTarget)
 	}
 	checks := make([]game.Seat, 0, len(st.Night.SeerResults))
 	for s := range st.Night.SeerResults {
@@ -182,7 +182,7 @@ func dayGodView(r *i18n.Renderer, st game.State, viewer game.Seat, out game.DayO
 		if st.Night.SeerResults[s] == game.CampWolf {
 			side = "狼人"
 		}
-		b.WriteString(fmt.Sprintf("✓ 查验：%d号 → %s\n", s, side))
+		fmt.Fprintf(&b, "✓ 查验：%d号 → %s\n", s, side)
 	}
 	wolfVotes := make([]game.Seat, 0, len(st.Night.WolfVotes))
 	for s := range st.Night.WolfVotes {
@@ -192,7 +192,7 @@ func dayGodView(r *i18n.Renderer, st game.State, viewer game.Seat, out game.DayO
 	for _, s := range wolfVotes {
 		target := st.Night.WolfVotes[s]
 		if target != nil {
-			b.WriteString(fmt.Sprintf("✓ 狼人投票：%d号 → %d号\n", s, *target))
+			fmt.Fprintf(&b, "✓ 狼人投票：%d号 → %d号\n", s, *target)
 		}
 	}
 
@@ -217,8 +217,8 @@ func dayGodView(r *i18n.Renderer, st game.State, viewer game.Seat, out game.DayO
 		if !cause.Valid() {
 			cause = game.CauseUnknown
 		}
-		b.WriteString(fmt.Sprintf("我的身份：%s\n", name))
-		b.WriteString(fmt.Sprintf("我的死因：%s\n", i18n.EscapeMarkdownV2(cause.String())))
+		fmt.Fprintf(&b, "我的身份：%s\n", name)
+		fmt.Fprintf(&b, "我的死因：%s\n", i18n.EscapeMarkdownV2(cause.String()))
 	}
 	b.WriteString("你已进入上帝视角，可以看到全员身份与行动记录。")
 	return b.String(), nil

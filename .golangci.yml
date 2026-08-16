@@ -1,12 +1,31 @@
-run:
-  timeout: 5m
+version: "2"
 
+# Task 43：golangci-lint v2 配置（由 v1 配置 golangci-lint migrate 迁移，
+# 工具版本经 go.mod tool 指令固定为 v2.12.2）。
+# 门禁策略：lint 覆盖生产代码；测试代码由 gofmt/go vet/全仓 gofmt 检查
+# 覆盖，不纳入 golangci-lint（避免既有测试辅助代码债务阻塞合并）。
 linters:
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+      - _test\.go$
+
+formatters:
   enable:
-    - errcheck
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
     - gofmt
     - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+      - _test\.go$

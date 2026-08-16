@@ -60,9 +60,9 @@ const (
 	LeaveReasonAborted                     // Bot 重启导致对局中止
 )
 
-// LeaveCooldownSeconds 是存活主动退出/强制移除/投票踢出触发的跨局加入
+// LeaveCooldown 是存活主动退出/强制移除/投票踢出触发的跨局加入
 // 冷却时长（docs §退出约束：10 分钟）。
-const LeaveCooldownSeconds = 600 * time.Second
+const LeaveCooldown = 600 * time.Second
 
 // CooldownFor 报告指定退出原因是否触发 10 分钟跨局加入冷却
 // （docs §退出约束）：触发 = 游戏进行中存活主动退出（含狼人白天退出
@@ -100,7 +100,7 @@ func (r reducer) leaveGame(st State, cmd LeaveGameCommand) (State, []Effect, err
 		after.Processed[cmd.Meta.ID] = true
 		markPlayerLeft(after.Players, seat)
 		effects = append(effects,
-			CooldownEffect{Duration: LeaveCooldownSeconds, Reason: LeaveReasonWolfExplode},
+			CooldownEffect{Duration: LeaveCooldown, Reason: LeaveReasonWolfExplode},
 			PersistEffect{Kind: PersistGameLeave},
 		)
 		return after, effects, nil
@@ -122,7 +122,7 @@ func (r reducer) leaveGame(st State, cmd LeaveGameCommand) (State, []Effect, err
 	}
 	effects := []Effect{
 		ann,
-		CooldownEffect{Duration: LeaveCooldownSeconds, Reason: reason},
+		CooldownEffect{Duration: LeaveCooldown, Reason: reason},
 		PersistEffect{Kind: PersistGameLeave},
 	}
 	return next, effects, nil
@@ -209,7 +209,7 @@ func (r reducer) advanceTimeoutStreaks(st State, at time.Time, unresponsive []Se
 			}
 			effects = append(effects,
 				removed,
-				CooldownEffect{Duration: LeaveCooldownSeconds, Reason: LeaveReasonForcedTimeout},
+				CooldownEffect{Duration: LeaveCooldown, Reason: LeaveReasonForcedTimeout},
 				PersistEffect{Kind: PersistGameLeave},
 			)
 		}

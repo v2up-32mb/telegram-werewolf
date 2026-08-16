@@ -11,7 +11,7 @@ import (
 // 磁盘实况为 6 张真实 JFIF .jpg（提交 9ba1fe0），因此 embed 模式使用
 // role-cards/*.jpg；实施计划中「werewolf.png」等 .png 命名与磁盘不符，
 // 以磁盘为准（docs/角色卡片.md 的目录树同为 .jpg）。README.md 不在
-// go:embed 模式内。hunter/guard 图片已随资源提交，一并内嵌供后续阶段使用。
+// README.md 不参与内嵌；hunter/guard 图片已随资源提交，一并内嵌供后续阶段使用。
 //
 //go:embed role-cards/*.jpg
 var RoleCards embed.FS

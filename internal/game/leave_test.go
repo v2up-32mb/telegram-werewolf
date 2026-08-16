@@ -69,8 +69,8 @@ func TestLeaveWolfDayActsAsExplode(t *testing.T) {
 	if !ok {
 		t.Fatalf("狼人白天退出应触发冷却：%v", effects)
 	}
-	if ce.Duration != LeaveCooldownSeconds {
-		t.Fatalf("冷却时长 = %v, want %v", ce.Duration, LeaveCooldownSeconds)
+	if ce.Duration != LeaveCooldown {
+		t.Fatalf("冷却时长 = %v, want %v", ce.Duration, LeaveCooldown)
 	}
 	if ce.Reason != LeaveReasonWolfExplode {
 		t.Fatalf("冷却原因 = %v, want LeaveReasonWolfExplode", ce.Reason)
@@ -238,7 +238,7 @@ func TestTimeoutStreakWarnsAndRemoves(t *testing.T) {
 				t.Errorf("缺少 leave.removed 移除公告：%v", fx)
 			}
 			ce, ok := findCooldown(fx)
-			if !ok || ce.Reason != LeaveReasonForcedTimeout || ce.Duration != LeaveCooldownSeconds {
+			if !ok || ce.Reason != LeaveReasonForcedTimeout || ce.Duration != LeaveCooldown {
 				t.Fatalf("强制移除应触发 10 分钟冷却：%v", fx)
 			}
 		}

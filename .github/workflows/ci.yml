@@ -10,20 +10,18 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: test and build
+  format-vet-lint:
+    name: format / vet / lint
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
-
       - name: gofmt (repository-wide)
         run: |
           unformatted=$(gofmt -l $(git ls-files '*.go'))
@@ -32,24 +30,94 @@ jobs:
             echo "$unformatted"
             exit 1
           fi
-
-      - name: go test ./...
-        run: go test ./...
-
       - name: go vet ./...
         run: go vet ./...
-
-      - name: make check
-        run: make check
-
-      - name: CGO_ENABLED=0 go build ./cmd/werewolf
-        run: CGO_ENABLED=0 go build ./cmd/werewolf
-
-      - name: make build-all
-        run: make build-all
-
+      - name: golangci-lint
+        run: go tool golangci-lint run ./...
       - name: git diff --check
         run: git diff --check
 
+  unit-integration:
+    name: unit / integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: go test ./...
+        run: go test ./...
+      - name: make check
+        run: make check
+
+  race:
+    name: race
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: true
       - name: go test -race ./...
         run: CGO_ENABLED=1 go test -race ./...
+
+  migration-sqlc:
+    name: migration / sqlc
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run migrations from empty DB
+        run: go test ./internal/storage -run '^TestInitialMigration$' -count=1
+      - name: sqlc generate must be up to date
+        run: |
+          go tool sqlc generate
+          git diff --exit-code -- internal/storage/sqlc
+
+  vulnerability:
+    name: vulnerability
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: govulncheck
+        run: go tool govulncheck ./...
+
+  build-matrix:
+    name: build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        goos: [linux]
+        goarch: [amd64, arm64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Cross-compile
+        run: CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o /tmp/werewolf-${{ matrix.goarch }} ./cmd/werewolf

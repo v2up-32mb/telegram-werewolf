@@ -25,7 +25,6 @@ type UpdateSource interface {
 // sourceOptions 是 LongPollingSource 的自持选项。
 type sourceOptions struct {
 	serverURL string
-	errors    chan<- error
 }
 
 // SourceOption 配置 UpdateSource 构造。

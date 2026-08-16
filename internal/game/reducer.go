@@ -32,21 +32,21 @@ func (r reducer) Reduce(state State, cmd Command) (State, []Effect, error) {
 	// 跨阶段命令：自爆与游戏内退出可在多个主阶段受理，由各自 reducer
 	// 校验自爆专用边界（白天 + 狼人）与游戏内退出边界（非大厅阶段）后
 	// 再进入领域流程（explode.go / leave.go）。
-	switch cmd.(type) {
+	switch cmd := cmd.(type) {
 	case ExplodeCommand:
-		return r.explode(state, cmd.(ExplodeCommand))
+		return r.explode(state, cmd)
 	case LeaveGameCommand:
-		return r.leaveGame(state, cmd.(LeaveGameCommand))
+		return r.leaveGame(state, cmd)
 	case GovernanceDissolveCommand:
-		return r.governanceDissolve(state, cmd.(GovernanceDissolveCommand))
+		return r.governanceDissolve(state, cmd)
 	case GovernanceDissolveVoteCommand:
-		return r.governanceDissolveVote(state, cmd.(GovernanceDissolveVoteCommand))
+		return r.governanceDissolveVote(state, cmd)
 	case GovernanceKickCommand:
-		return r.governanceKick(state, cmd.(GovernanceKickCommand))
+		return r.governanceKick(state, cmd)
 	case GovernanceKickVoteCommand:
-		return r.governanceKickVote(state, cmd.(GovernanceKickVoteCommand))
+		return r.governanceKickVote(state, cmd)
 	case HostDissolveCommand:
-		return r.hostDissolve(state, cmd.(HostDissolveCommand))
+		return r.hostDissolve(state, cmd)
 	}
 	// 分派到阶段 reducer。已实现的阶段（Lobby 开始 / Deal 确认与超时）
 	// 进入 deal.go 的领域流程；其余阶段返回明确错误且不修改状态。

@@ -303,7 +303,7 @@ func (r reducer) governanceKickVote(st State, cmd GovernanceKickVoteCommand) (St
 
 // settleGovernanceKick 判定投票踢人结果（超过三分之一同意即通过，docs
 // §投票踢人 1）：通过则被踢者按掉线处理（判负移除语义）——标记死亡 +
-// Left + CooldownEffect{LeaveCooldownSeconds, LeaveReasonVoteKicked} +
+// Left + CooldownEffect{LeaveCooldown, LeaveReasonVoteKicked} +
 // PersistGameLeave + 公共公告；未达阈值保持开启。
 func (r reducer) settleGovernanceKick(st State, base []Effect) (State, []Effect, error) {
 	alive := len(governanceAliveSeats(st.Players))
@@ -321,7 +321,7 @@ func (r reducer) settleGovernanceKick(st State, base []Effect) (State, []Effect,
 	}
 	effects = append(effects,
 		passed,
-		CooldownEffect{Duration: LeaveCooldownSeconds, Reason: LeaveReasonVoteKicked},
+		CooldownEffect{Duration: LeaveCooldown, Reason: LeaveReasonVoteKicked},
 		PersistEffect{Kind: PersistGameLeave},
 	)
 	st.Governance.KickVotes = map[Seat]bool{}

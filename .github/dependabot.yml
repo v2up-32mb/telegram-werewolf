@@ -1,0 +1,14 @@
+# Task 43：依赖与 Action 自动更新（固定 SHA 由 Dependabot 以 PR 形式升级，
+# 保持可审查；weekly 频率避免噪声）。
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
