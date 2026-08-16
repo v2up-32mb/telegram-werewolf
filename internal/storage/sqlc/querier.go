@@ -15,6 +15,7 @@ type Querier interface {
 	GetMediaCache(ctx context.Context, cacheKey string) (MediaCache, error)
 	GetRoleStats(ctx context.Context, userID int64) ([]RoleStat, error)
 	GetRoomByCode(ctx context.Context, roomCode string) (Room, error)
+	GetRoomSettings(ctx context.Context, roomCode string) (GetRoomSettingsRow, error)
 	GetUpdateCursor(ctx context.Context) (BotUpdateCursor, error)
 	GetUser(ctx context.Context, telegramID int64) (User, error)
 	InsertBattleReport(ctx context.Context, arg InsertBattleReportParams) error
@@ -23,6 +24,7 @@ type Querier interface {
 	ListActiveRooms(ctx context.Context) ([]Room, error)
 	UpsertMediaCache(ctx context.Context, arg UpsertMediaCacheParams) error
 	UpsertRoleStat(ctx context.Context, arg UpsertRoleStatParams) error
+	UpsertRoomSettings(ctx context.Context, arg UpsertRoomSettingsParams) error
 	UpsertUpdateCursor(ctx context.Context, updateID int64) error
 	UpsertUser(ctx context.Context, arg UpsertUserParams) error
 }

@@ -1,7 +1,9 @@
 version: "2"
 sql:
   - engine: "sqlite"
-    schema: "migrations/000001_initial.sql"
+    schema:
+      - "migrations/000001_initial.sql"
+      - "migrations/000003_add_room_settings.sql"
     queries: "queries/*.sql"
     gen:
       go:

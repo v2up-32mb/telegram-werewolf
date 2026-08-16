@@ -69,6 +69,12 @@ type RoomPlayer struct {
 	JoinedAt string `json:"joined_at"`
 }
 
+type RoomSetting struct {
+	RoomCode     string `json:"room_code"`
+	Settings     string `json:"settings"`
+	PasswordHash string `json:"password_hash"`
+}
+
 type User struct {
 	TelegramID int64  `json:"telegram_id"`
 	Nickname   string `json:"nickname"`

@@ -9,6 +9,7 @@ import (
 
 	"github.com/v2up-32mb/telegram-werewolf/internal/game"
 	"github.com/v2up-32mb/telegram-werewolf/internal/storage/sqlc"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // 房间领域错误：SQLite 驱动文本只在 storage 内部解析，向上层只暴露
@@ -203,4 +204,66 @@ func isUniqueViolation(err error) bool {
 // isForeignKeyViolation 报告错误是否为 SQLite 外键约束冲突。
 func isForeignKeyViolation(err error) bool {
 	return err != nil && strings.Contains(strings.ToLower(err.Error()), "foreign key constraint failed")
+}
+
+// UpdateRoomSettings 持久化房间设置快照（JSON 文本）与 bcrypt 密码哈希。
+// 本层只接收已哈希值并用 bcrypt.Cost 严格校验哈希本身，绝不接收明文密码
+// （docs/游戏流程设计.md §密码：明文不得入库）。房间不存在返回 ErrRoomNotFound。
+func (r *RoomRepository) UpdateRoomSettings(ctx context.Context, code game.RoomID, settings string, passwordHash string) error {
+	if passwordHash != "" {
+		if _, err := bcrypt.Cost([]byte(passwordHash)); err != nil {
+			return fmt.Errorf("storage: refusing non-bcrypt password hash for room %q: %w", code, err)
+		}
+	}
+	if err := sqlc.New(r.db).UpsertRoomSettings(ctx, sqlc.UpsertRoomSettingsParams{
+		RoomCode:     string(code),
+		Settings:     settings,
+		PasswordHash: passwordHash,
+	}); err != nil {
+		if isForeignKeyViolation(err) {
+			return ErrRoomNotFound
+		}
+		return fmt.Errorf("storage: upsert room settings %q: %w", code, err)
+	}
+	return nil
+}
+
+// roomSettingsRow 读取设置行；无设置行时区分「房间不存在」与
+// 「房间存在但从未保存过设置」（后者为空设置/空密码状态）。
+func (r *RoomRepository) roomSettingsRow(ctx context.Context, code game.RoomID) (sqlc.GetRoomSettingsRow, error) {
+	row, err := sqlc.New(r.db).GetRoomSettings(ctx, string(code))
+	if err == nil {
+		return row, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return sqlc.GetRoomSettingsRow{}, fmt.Errorf("storage: get room settings %q: %w", code, err)
+	}
+	var exists int64
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM rooms WHERE room_code = ?`, string(code)).Scan(&exists); err != nil {
+		return sqlc.GetRoomSettingsRow{}, fmt.Errorf("storage: check room %q: %w", code, err)
+	}
+	if exists == 0 {
+		return sqlc.GetRoomSettingsRow{}, ErrRoomNotFound
+	}
+	return sqlc.GetRoomSettingsRow{}, nil
+}
+
+// RoomPasswordHash 返回房间当前 bcrypt 密码哈希（空串=未设密码；
+// 房间存在但从未保存过设置同样为空串）；房间不存在返回 ErrRoomNotFound。
+func (r *RoomRepository) RoomPasswordHash(ctx context.Context, code game.RoomID) (string, error) {
+	row, err := r.roomSettingsRow(ctx, code)
+	if err != nil {
+		return "", err
+	}
+	return row.PasswordHash, nil
+}
+
+// RoomSettings 返回房间设置快照 JSON（空串=未设置过）；
+// 房间不存在返回 ErrRoomNotFound。
+func (r *RoomRepository) RoomSettings(ctx context.Context, code game.RoomID) (string, error) {
+	row, err := r.roomSettingsRow(ctx, code)
+	if err != nil {
+		return "", err
+	}
+	return row.Settings, nil
 }

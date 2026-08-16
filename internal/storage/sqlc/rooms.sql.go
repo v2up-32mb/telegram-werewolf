@@ -50,6 +50,22 @@ func (q *Queries) GetRoomByCode(ctx context.Context, roomCode string) (Room, err
 	return i, err
 }
 
+const getRoomSettings = `-- name: GetRoomSettings :one
+SELECT settings, password_hash FROM room_settings WHERE room_code = ?
+`
+
+type GetRoomSettingsRow struct {
+	Settings     string `json:"settings"`
+	PasswordHash string `json:"password_hash"`
+}
+
+func (q *Queries) GetRoomSettings(ctx context.Context, roomCode string) (GetRoomSettingsRow, error) {
+	row := q.db.QueryRowContext(ctx, getRoomSettings, roomCode)
+	var i GetRoomSettingsRow
+	err := row.Scan(&i.Settings, &i.PasswordHash)
+	return i, err
+}
+
 const insertRoomPlayer = `-- name: InsertRoomPlayer :exec
 INSERT INTO room_players (room_code, user_id, seat, is_host) VALUES (?, ?, ?, ?)
 `
@@ -102,4 +118,20 @@ func (q *Queries) ListActiveRooms(ctx context.Context) ([]Room, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertRoomSettings = `-- name: UpsertRoomSettings :exec
+INSERT INTO room_settings (room_code, settings, password_hash) VALUES (?, ?, ?)
+ON CONFLICT(room_code) DO UPDATE SET settings = excluded.settings, password_hash = excluded.password_hash
+`
+
+type UpsertRoomSettingsParams struct {
+	RoomCode     string `json:"room_code"`
+	Settings     string `json:"settings"`
+	PasswordHash string `json:"password_hash"`
+}
+
+func (q *Queries) UpsertRoomSettings(ctx context.Context, arg UpsertRoomSettingsParams) error {
+	_, err := q.db.ExecContext(ctx, upsertRoomSettings, arg.RoomCode, arg.Settings, arg.PasswordHash)
+	return err
 }

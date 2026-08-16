@@ -84,7 +84,7 @@ func TestOpenClose(t *testing.T) {
 	}
 }
 
-// TestMigrateIdempotent 验证迁移幂等：连续两次 Migrate 不报错，9 张业务表存在。
+// TestMigrateIdempotent 验证迁移幂等：连续两次 Migrate 不报错，10 张业务表存在。
 func TestMigrateIdempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "app.db")
 	db, err := storage.Open(path, 4)

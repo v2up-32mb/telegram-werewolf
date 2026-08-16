@@ -12,3 +12,10 @@ SELECT room_code, host_user_id, phase, created_at, started_at FROM rooms ORDER B
 
 -- name: DeleteRoom :exec
 DELETE FROM rooms WHERE room_code = ?;
+
+-- name: UpsertRoomSettings :exec
+INSERT INTO room_settings (room_code, settings, password_hash) VALUES (?, ?, ?)
+ON CONFLICT(room_code) DO UPDATE SET settings = excluded.settings, password_hash = excluded.password_hash;
+
+-- name: GetRoomSettings :one
+SELECT settings, password_hash FROM room_settings WHERE room_code = ?;
