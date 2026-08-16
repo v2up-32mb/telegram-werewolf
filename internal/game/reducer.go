@@ -37,6 +37,16 @@ func (r reducer) Reduce(state State, cmd Command) (State, []Effect, error) {
 		return r.explode(state, cmd.(ExplodeCommand))
 	case LeaveGameCommand:
 		return r.leaveGame(state, cmd.(LeaveGameCommand))
+	case GovernanceDissolveCommand:
+		return r.governanceDissolve(state, cmd.(GovernanceDissolveCommand))
+	case GovernanceDissolveVoteCommand:
+		return r.governanceDissolveVote(state, cmd.(GovernanceDissolveVoteCommand))
+	case GovernanceKickCommand:
+		return r.governanceKick(state, cmd.(GovernanceKickCommand))
+	case GovernanceKickVoteCommand:
+		return r.governanceKickVote(state, cmd.(GovernanceKickVoteCommand))
+	case HostDissolveCommand:
+		return r.hostDissolve(state, cmd.(HostDissolveCommand))
 	}
 	// 分派到阶段 reducer。已实现的阶段（Lobby 开始 / Deal 确认与超时）
 	// 进入 deal.go 的领域流程；其余阶段返回明确错误且不修改状态。
@@ -168,6 +178,16 @@ func commandMeta(cmd Command) (CommandMeta, error) {
 		return c.Meta, nil
 	case LeaveGameCommand:
 		return c.Meta, nil
+	case GovernanceDissolveCommand:
+		return c.Meta, nil
+	case GovernanceDissolveVoteCommand:
+		return c.Meta, nil
+	case GovernanceKickCommand:
+		return c.Meta, nil
+	case GovernanceKickVoteCommand:
+		return c.Meta, nil
+	case HostDissolveCommand:
+		return c.Meta, nil
 	default:
 		return CommandMeta{}, ErrUnknownCommand
 	}
@@ -249,6 +269,10 @@ func validateTarget(state State, cmd Command) error {
 			return nil // 弃权
 		}
 		return requireSeat(*c.Target, inRoom, true)
+	case GovernanceKickCommand:
+		// 投票踢人目标必须为房间内存活玩家（本人拒绝由治理 reducer
+		// 单独校验 ErrGovernanceKickSelf）。
+		return requireSeat(c.Target, inRoom, true)
 	default:
 		return nil
 	}

@@ -216,3 +216,50 @@ type LeaveGameCommand struct {
 }
 
 func (LeaveGameCommand) command() {}
+
+// GovernanceDissolveCommand 是「发起投票解散」（docs 游戏流程设计.md
+// §解散）：发起者计一票同意；仅存活玩家可发起，局内每人限 1 次、
+// 每阶段限 1 次；超过三分之一同意即通过（不扣分）。
+type GovernanceDissolveCommand struct {
+	Meta CommandMeta
+}
+
+func (GovernanceDissolveCommand) command() {}
+
+// GovernanceDissolveVoteCommand 是投票解散已发起后的同意票
+// （docs §解散 2：仅存活玩家参与，超过三分之一同意即通过）。
+type GovernanceDissolveVoteCommand struct {
+	Meta CommandMeta
+}
+
+func (GovernanceDissolveVoteCommand) command() {}
+
+// GovernanceKickCommand 是「发起投票踢人」（docs §投票踢人）：目标必须
+// 为房间内存活玩家且非发起者本人；发起限制与投票解散一致；被踢者按
+// 掉线处理（判负移除语义）。
+type GovernanceKickCommand struct {
+	Meta   CommandMeta
+	Target Seat
+}
+
+func (GovernanceKickCommand) command() {}
+
+// GovernanceKickVoteCommand 是投票踢人已发起后的同意票
+// （docs §投票踢人 1：超过三分之一同意即通过）。
+type GovernanceKickVoteCommand struct {
+	Meta CommandMeta
+}
+
+func (GovernanceKickVoteCommand) command() {}
+
+// HostDissolveCommand 是房主强制解散（docs §解散 1、§积分系统 2）：
+// 二次确认（Confirm=false 请求确认，Confirm=true 生效）；生效扣 10 分
+// （ScorePenaltyEffect），积分 ≤9 禁止；HostScore 由接线层从存储读取
+// 后传入（game 核心不触碰 SQLite）。
+type HostDissolveCommand struct {
+	Meta      CommandMeta
+	Confirm   bool
+	HostScore int
+}
+
+func (HostDissolveCommand) command() {}

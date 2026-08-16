@@ -178,3 +178,14 @@ wolves.explode: "💥 {{.Seat}} 号狼人自爆了！自爆优先，已投出的
 leave.malicious: "⚠️ {{.Seat}} 号恶意退出，按死亡处理。"
 leave.timeout_warning: "⏰ 你已连续超时 {{.Streak}} 次，再超时 {{.Remaining}} 次将被强制退出。"
 leave.removed: "🚫 {{.Seat}} 号因连续超时被强制移除。"
+
+# 游戏中治理（docs 游戏流程设计.md §解散、§投票踢人、§房主控制面板；
+# 治理公告写当前时间段主消息，不额外发送永久事件消息）
+governance.dissolve.initiated: "🗳 {{.Initiator}} 号发起了投票解散（超过三分之一同意即通过）。"
+governance.dissolve.vote: "✅ 你已投同意解散票。"
+governance.dissolve.passed: "⚖️ 投票解散通过，房间解散（不扣分）。"
+governance.kick.initiated: "🗳 {{.Initiator}} 号发起了投票踢人（目标 {{.Target}} 号，超过三分之一同意即通过）。"
+governance.kick.vote: "✅ 你已投同意踢人票。"
+governance.kick.passed: "🚪 投票踢人通过，{{.Target}} 号按掉线处理被移除。"
+governance.host_dissolve.confirm: "⚠️ 确认强制解散房间？将扣除 10 积分（积分 ≤9 时无法强制解散）。"
+governance.host_dissolve.passed: "🏚 房主强制解散了房间（扣除 10 积分）。"

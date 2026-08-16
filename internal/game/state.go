@@ -12,12 +12,13 @@ type State struct {
 	PhaseVersion uint64
 	Players      []Player
 
-	Lobby   LobbyState
-	Deal    DealState
-	Night   NightState
-	Day     DayState
-	Vote    VoteState
-	Settled SettledState
+	Lobby      LobbyState
+	Deal       DealState
+	Night      NightState
+	Day        DayState
+	Vote       VoteState
+	Settled    SettledState
+	Governance GovernanceState // 游戏中治理（投票解散/投票踢人/房主强制解散，Task 39）
 
 	// Settings 是建房后房主配置快照（docs「房间设置修改截止」：发牌后
 	// 全部锁定）。由接线层填充；零值表示调用方未填充，领域测试必须
@@ -222,6 +223,31 @@ func (s State) Copy() State {
 		v := *s.Vote.Exiled
 		c.Vote.Exiled = &v
 	}
+
+	c.Governance.PhaseVersion = s.Governance.PhaseVersion
+	c.Governance.DissolveVotes = make(map[Seat]bool, len(s.Governance.DissolveVotes))
+	for seat, yes := range s.Governance.DissolveVotes {
+		c.Governance.DissolveVotes[seat] = yes
+	}
+	c.Governance.DissolveBy = make(map[Seat]bool, len(s.Governance.DissolveBy))
+	for seat := range s.Governance.DissolveBy {
+		c.Governance.DissolveBy[seat] = true
+	}
+	c.Governance.DissolveInitiated = s.Governance.DissolveInitiated
+	c.Governance.KickVotes = make(map[Seat]bool, len(s.Governance.KickVotes))
+	for seat, yes := range s.Governance.KickVotes {
+		c.Governance.KickVotes[seat] = yes
+	}
+	c.Governance.KickBy = make(map[Seat]bool, len(s.Governance.KickBy))
+	for seat := range s.Governance.KickBy {
+		c.Governance.KickBy[seat] = true
+	}
+	c.Governance.KickInitiated = s.Governance.KickInitiated
+	if s.Governance.KickTarget != nil {
+		v := *s.Governance.KickTarget
+		c.Governance.KickTarget = &v
+	}
+	c.Governance.HostDissolvePending = s.Governance.HostDissolvePending
 
 	c.Processed = make(map[string]bool, len(s.Processed))
 	for id := range s.Processed {
