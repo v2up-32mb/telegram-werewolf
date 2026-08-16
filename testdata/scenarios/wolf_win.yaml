@@ -1,0 +1,51 @@
+# 场景 B：狼人胜
+# 覆盖：夜间超时弃刀、白天投票超时弃权（连续 2 次，触发预警但未达强制移除）、
+#       恶意退出（村民1 游戏内退出判负）、白天投票放逐最后好人 → 狼人胜。
+# 流程：N1 狼人超时弃刀 + 村民1 恶意退出（平安夜）→ D1 投票超时 →
+#       N2 刀村民2 → D2 投票超时 → N3 刀女巫 → D3 放逐预言家 → 狼人胜。
+name: wolf_win
+description: 狼人胜：夜间/投票超时、恶意退出与最后好人放逐
+seed: 2026081602
+room_code: "W2WIN"
+config:
+  victory: slaughter
+  reveal_role_on_death: false
+script:
+  - step: night
+    night: 1
+    wolf_kill: none
+    wolf_timeout: true
+    malicious_exit: villager_1
+    witch_timeout: true
+    seer_timeout: true
+  - step: day
+    day: 1
+    vote_timeout: true
+    last_words: none
+  - step: night
+    night: 2
+    wolf_kill: villager_1
+    witch_timeout: true
+    seer_timeout: true
+  - step: day
+    day: 2
+    vote_timeout: true
+    last_words: none
+  - step: night
+    night: 3
+    wolf_kill: witch
+    witch_timeout: true
+    seer_timeout: true
+  - step: day
+    day: 3
+    votes:
+      - voter: seer
+        target: wolf_1
+      - voter: wolf_1
+        target: seer
+      - voter: wolf_2
+        target: seer
+    last_words: none
+  - step: settle
+    expect_winner: wolf
+    rematch: false

@@ -1,0 +1,21 @@
+# 场景 D：进程重启中止
+# 覆盖：对局进行中（第 1 夜结算后）进程重启 → 不判胜负/不加减积分，
+#       保留中止记录（games.aborted=1）并向房主发出中止通知。
+name: restart_abort
+description: 进程重启中止：不结算积分但保留记录并通知
+seed: 2026081604
+room_code: "ABORT"
+config:
+  victory: slaughter
+  reveal_role_on_death: false
+script:
+  - step: night
+    night: 1
+    wolf_kill: villager_1
+    witch_save: false
+    witch_poison: none
+    seer_check: wolf_1
+    seer_expect: wolf
+  - step: abort
+    expect_aborted: true
+    expect_score_unchanged: true

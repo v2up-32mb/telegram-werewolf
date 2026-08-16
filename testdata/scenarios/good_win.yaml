@@ -1,0 +1,46 @@
+# 场景 A：好人胜
+# 覆盖：女巫首夜救刀口（平安夜）、预言家查验狼、白天投票放逐狼人、
+#       第 2 夜女巫毒狼、结算与再来一局。
+# 流程：N1 狼刀村民1 → 女巫救（救后本夜不能再用毒）→ 查验狼2 → 平安夜 →
+#       D1 放逐狼2 → N2 狼刀预言家 + 女巫毒狼1 → 好人胜 → 再来一局回大厅。
+name: good_win
+description: 好人胜：女巫救/毒、预言家查验、白天投狼
+seed: 2026081601
+room_code: "G2WIN"
+config:
+  victory: slaughter
+  reveal_role_on_death: false
+script:
+  - step: night
+    night: 1
+    wolf_kill: villager_1
+    witch_save: true
+    witch_poison: none
+    seer_check: wolf_2
+    seer_expect: wolf
+  - step: day
+    day: 1
+    votes:
+      - voter: good_1
+        target: wolf_2
+      - voter: good_2
+        target: wolf_2
+      - voter: good_3
+        target: wolf_2
+      - voter: good_4
+        target: wolf_2
+      - voter: wolf_1
+        target: good_1
+      - voter: wolf_2
+        target: good_1
+    last_words: none
+  - step: night
+    night: 2
+    wolf_kill: seer
+    witch_save: false
+    witch_poison: wolf_1
+    seer_check: villager_1
+    seer_expect: good
+  - step: settle
+    expect_winner: good
+    rematch: true

@@ -1,0 +1,83 @@
+# 场景 C：复杂平票与最终二人对决
+# 覆盖：首次平票 → 加时发言超时 → 缩圈投票仍平票 → 最终对决放逐；
+#       末局 1 狼 1 好人平票 → 加时/缩圈仍平票 → 最终对决零投票人 →
+#       RNG 兜底裁决（MVP 必然分出结果）。
+# 流程：N1 刀村民1（不救不毒）→ D1 首次 2-2 平票 → 加时超时 →
+#       缩圈 2-2 → 最终对决放逐村民2 → N2 刀预言家 + 毒狼2 →
+#       D2 1-1 平票 → 加时/缩圈仍平票 → 最终对决零投票人 RNG 裁决 → 结算。
+name: tie_vote
+description: 复杂平票（首次/加时/缩圈）与最终二人对决（RNG 兜底）
+seed: 2026081603
+room_code: "T2TIE"
+config:
+  victory: slaughter
+  reveal_role_on_death: false
+script:
+  - step: night
+    night: 1
+    wolf_kill: villager_1
+    witch_save: false
+    witch_poison: none
+    seer_check: wolf_1
+    seer_expect: wolf
+  - step: day
+    day: 1
+    tie: true
+    tie_rounds:
+      - votes:
+          - voter: wolf_1
+            target: villager_1
+          - voter: wolf_2
+            target: villager_1
+          - voter: seer
+            target: wolf_1
+          - voter: witch
+            target: wolf_1
+          - voter: villager_1
+            target: seer
+      - speech_timeout: true
+      - votes:
+          - voter: villager_1
+            target: wolf_1
+          - voter: wolf_1
+            target: villager_1
+          - voter: seer
+            target: wolf_1
+          - voter: witch
+            target: villager_1
+          - voter: wolf_2
+            target: abstain
+      - votes:
+          - voter: seer
+            target: wolf_1
+          - voter: witch
+            target: villager_1
+          - voter: wolf_2
+            target: villager_1
+    last_words: none
+  - step: night
+    night: 2
+    wolf_kill: seer
+    witch_save: false
+    witch_poison: wolf_2
+    seer_timeout: true
+  - step: day
+    day: 2
+    tie: true
+    tie_rounds:
+      - votes:
+          - voter: wolf_1
+            target: witch
+          - voter: witch
+            target: wolf_1
+      - speech_timeout: true
+      - votes:
+          - voter: wolf_1
+            target: witch
+          - voter: witch
+            target: wolf_1
+      - final_timeout: true
+    last_words: none
+  - step: settle
+    expect_winner: any
+    rematch: false
