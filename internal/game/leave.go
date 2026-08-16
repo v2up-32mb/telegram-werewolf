@@ -113,6 +113,7 @@ func (r reducer) leaveGame(st State, cmd LeaveGameCommand) (State, []Effect, err
 	next := st.Copy()
 	markPlayerDead(next.Players, seat)
 	markPlayerLeft(next.Players, seat)
+	markPlayerMalicious(next.Players, seat) // 恶意退出（结算积分为 0/-5）
 	next.Processed[cmd.Meta.ID] = true
 
 	ann, err := NewMessageEffect(AudiencePublic, LeaveMaliciousMessageKey, map[string]any{"seat": seat})
@@ -132,6 +133,18 @@ func markPlayerLeft(players []Player, seat Seat) {
 	for i := range players {
 		if players[i].Seat == seat {
 			players[i].Left = true
+			return
+		}
+	}
+}
+
+// markPlayerMalicious 把指定座位标记为恶意退出（仅「游戏进行中存活主动
+// 退出」路径调用；连续超时强制移除在 advanceTimeoutStreaks 内直接置位；
+// 无该座位时静默）。
+func markPlayerMalicious(players []Player, seat Seat) {
+	for i := range players {
+		if players[i].Seat == seat {
+			players[i].MaliciousExit = true
 			return
 		}
 	}
@@ -189,6 +202,7 @@ func (r reducer) advanceTimeoutStreaks(st State, at time.Time, unresponsive []Se
 		case 3:
 			p.Dead = true
 			p.Left = true
+			p.MaliciousExit = true // 连续 3 次超时强制移除（积分按恶意退出口径）
 			removed, err := NewMessageEffect(AudiencePublic, LeaveRemovedMessageKey, map[string]any{"seat": p.Seat})
 			if err != nil {
 				return st, nil, fmt.Errorf("game: timeout removal: %w", err)

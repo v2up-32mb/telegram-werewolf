@@ -1,5 +1,7 @@
 package game
 
+import "time"
+
 // State 是一局游戏的不可变快照，由 Reducer 以值语义驱动：
 // 新状态 + Effects = Reduce(旧状态, Command)。
 //
@@ -34,6 +36,11 @@ type State struct {
 type LobbyState struct {
 	Owner  UserID
 	Config GameConfig
+
+	// RematchReadyAt 是「再来一局」退出窗口的结束时刻（docs §结算 6：
+	// 从点击起至少留足 15 秒；窗口内 StartGameCommand 拒绝）。零值表示
+	// 非「再来一局」返回的大厅。
+	RematchReadyAt time.Time
 }
 
 // DealState 是发牌确认阶段的状态：记录已确认身份的座位。
@@ -130,9 +137,13 @@ type VoteState struct {
 	LastWords  string
 }
 
-// SettledState 是结算阶段的胜利快照。
+// SettledState 是结算阶段的胜利快照（Task 40）：胜方、全员身份翻牌与
+// 关键事件（战报数据；MVP 不评，docs §结算 8）。Revealed/KeyEvents 由
+// settle（settlement.go）写入，非空即视为已结算（幂等判定）。
 type SettledState struct {
-	Winner Camp
+	Winner    Camp
+	Revealed  []PlayerResult
+	KeyEvents []KeyEvent
 }
 
 // Copy 返回 State 的深拷贝：slice、map 与指针字段均复制，
@@ -145,6 +156,9 @@ func (s State) Copy() State {
 	c.Lobby.Config.Roles = append([]Role(nil), s.Lobby.Config.Roles...)
 
 	c.Deal.Confirmed = append([]Seat(nil), s.Deal.Confirmed...)
+
+	c.Settled.Revealed = append([]PlayerResult(nil), s.Settled.Revealed...)
+	c.Settled.KeyEvents = append([]KeyEvent(nil), s.Settled.KeyEvents...)
 
 	if s.Night.WolfKillTarget != nil {
 		seat := *s.Night.WolfKillTarget

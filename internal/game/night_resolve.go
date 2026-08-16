@@ -107,7 +107,9 @@ func settleNight(st State, winner Camp, victims []Seat, prior []Effect) (State, 
 	next.Settled.Winner = winner
 	next.Phase = PhaseSettlement
 	next.PhaseVersion++
-	return next, effects, nil
+	// Task 40：进入结算后立即执行结算领域流程（全员翻牌/积分/关键事件）
+	// 并产出 PersistSettlementEffect + settlement.report（幂等）。
+	return settle(next, effects)
 }
 
 // deathOrPeaceMessage 构造死讯消息（有死者）或平安夜消息（无死者）。

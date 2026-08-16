@@ -263,3 +263,13 @@ type HostDissolveCommand struct {
 }
 
 func (HostDissolveCommand) command() {}
+
+// RematchCommand 由房主在结算阶段点击「再来一局」发起（docs §结算 6）：
+// 回到等待大厅、保留成员与配置、从点击起至少 15 秒退出窗口（窗口内
+// StartGameCommand 拒绝）。Meta.ReceivedAt 为窗口计算时间源（reducer
+// 不读取系统时间，docs/技术选型.md §5.1）。
+type RematchCommand struct {
+	Meta CommandMeta
+}
+
+func (RematchCommand) command() {}

@@ -131,6 +131,11 @@ func (r reducer) Reduce(state State, cmd Command) (State, []Effect, error) {
 				return r.seerTimeout(state, c)
 			}
 		}
+	case PhaseSettlement:
+		// 结算阶段（Task 40）：房主「再来一局」回等待大厅。
+		if cmd, ok := cmd.(RematchCommand); ok {
+			return r.rematch(state, cmd)
+		}
 	}
 	return state, nil, ErrNotImplemented
 }
@@ -188,6 +193,8 @@ func commandMeta(cmd Command) (CommandMeta, error) {
 		return c.Meta, nil
 	case HostDissolveCommand:
 		return c.Meta, nil
+	case RematchCommand:
+		return c.Meta, nil
 	default:
 		return CommandMeta{}, ErrUnknownCommand
 	}
@@ -214,12 +221,31 @@ func validate(state State, cmd Command, meta CommandMeta) error {
 	case CreateRoomCommand, JoinRoomCommand:
 		// 创建/加入命令：Actor 在房间建立完成前尚未成为玩家。
 		return nil
+	case RematchCommand:
+		// 「再来一局」是结算阶段的大厅控制操作：房主（房间所有者）即使
+		// 本局已死亡也仍在房间内，可发起再来一局（docs §结算 5/6：房主
+		// 控制；死亡只约束游戏内操作）。仅校验在房间内，存活校验由其他
+		// 游戏内命令保留。
+		if !actorInRoom(state, meta.Actor) {
+			return ErrNotInRoom
+		}
+		return nil
 	default:
 		if err := validateActor(state, meta.Actor); err != nil {
 			return err
 		}
 		return validateTarget(state, cmd)
 	}
+}
+
+// actorInRoom 报告操作者是否为房间内的玩家（不要求存活）。
+func actorInRoom(state State, actor UserID) bool {
+	for _, p := range state.Players {
+		if p.UserID == actor {
+			return true
+		}
+	}
+	return false
 }
 
 // validateActor 校验 Actor 是房间内的存活玩家。

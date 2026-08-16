@@ -324,6 +324,16 @@ func (r reducer) resolveExile(st State, at time.Time, base []Effect, exiled Seat
 	effects := append([]Effect{}, base...)
 	effects = append(effects, result)
 
+	// 白天放逐落定后的即时胜负判定（docs §结算 1：白天为投票先触发者
+	// 获胜）：已分胜负立即进入 PhaseSettlement 执行结算（不进入遗言
+	// 窗口或黑夜），未分胜负维持既有遗言/黑夜路径。
+	if winner, done := EvaluateVictory(next.Players, next.Settings.Victory); done {
+		next.Settled.Winner = winner
+		next.Phase = PhaseSettlement
+		next.PhaseVersion++
+		return settle(next, effects)
+	}
+
 	if !next.Settings.RevealRoleOnDeath {
 		// 默认「不报身份」：被票死者有 30 秒遗言（docs §结算 4）。
 		next.Vote.Stage = VoteStageLastWords

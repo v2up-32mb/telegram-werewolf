@@ -189,3 +189,9 @@ governance.kick.vote: "✅ 你已投同意踢人票。"
 governance.kick.passed: "🚪 投票踢人通过，{{.Target}} 号按掉线处理被移除。"
 governance.host_dissolve.confirm: "⚠️ 确认强制解散房间？将扣除 10 积分（积分 ≤9 时无法强制解散）。"
 governance.host_dissolve.passed: "🏚 房主强制解散了房间（扣除 10 积分）。"
+
+# 结算、积分、战报与再来一局（docs 游戏流程设计.md §结算、§积分系统、
+# 阶段消息设计.md §15/§16：战报单独永久发送，大厅控制另发临时消息）
+settlement.victory: "🏆 游戏结束，{{.Winner}} 阵营获胜！"
+settlement.report: "📜 本局结算战报：{{.Winner}} 阵营获胜。参与人、全员身份与积分变化见战报详情（本局不评 MVP，只记胜负）。"
+lobby.rematch: "🏠 房间已返回等待状态，沿用本局配置。「再来一局」已确认，从点击起至少保留 {{.WindowSeconds}} 秒供玩家选择退出；期间空位可等待新人加入或 AI 补位，满足开始条件后由房主开始游戏。"

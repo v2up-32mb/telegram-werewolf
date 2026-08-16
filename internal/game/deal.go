@@ -57,6 +57,11 @@ func (r reducer) startGame(st State, cmd StartGameCommand) (State, []Effect, err
 	if len(st.Players) < st.Lobby.Config.PlayerCount {
 		return st, nil, ErrRoomNotFull
 	}
+	// 「再来一局」退出窗口（docs §结算 6：从点击起至少 15 秒）：窗口未
+	// 结束前禁止开始新对局，给玩家留足退出时间。
+	if !st.Lobby.RematchReadyAt.IsZero() && cmd.Meta.ReceivedAt.Before(st.Lobby.RematchReadyAt) {
+		return st, nil, ErrRematchWindowOpen
+	}
 	if err := st.Lobby.Config.Validate(); err != nil {
 		return st, nil, fmt.Errorf("game: start game config: %w", err)
 	}

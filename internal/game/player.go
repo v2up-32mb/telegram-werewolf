@@ -23,6 +23,11 @@ type Player struct {
 	// 写入 JoinStore.HasLeft）。狼人自爆（ExplodeCommand）不是退出，
 	// Left 不置位。
 	Left bool
+	// MaliciousExit 标记玩家是否恶意退出（docs §恶意退出判定 ①②：
+	// 游戏进行中存活时主动退出、连续 3 次超时被系统强制移除；结算积分
+	// 口径据此判定 -5/0，docs §积分系统 1）。狼人白天退出按自爆处理、
+	// 投票踢出按掉线判负、狼人自爆不是退出，均不置位。
+	MaliciousExit bool
 	// TimeoutStreak 是整局累计连续超时次数（docs §恶意退出判定 ②）：
 	// 中间有被受理的操作清零；达到 2 私聊预警、达到 3 系统强制移除。
 	TimeoutStreak int
