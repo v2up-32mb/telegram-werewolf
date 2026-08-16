@@ -105,3 +105,12 @@ witch.choice.save_used: "使用解药"
 witch.choice.save_not_used: "不使用解药"
 witch.choice.poison_used: "毒杀 {{.Seat}}"
 witch.choice.poison_not_used: "不使用毒药"
+
+# 预言家夜间（docs §夜间 4、§8.3 预言家、§5 私密标记）
+seer.prompt: |
+  {{.Prompt}}
+  {{.Targets}}
+
+  选择后请点击「确认查验」，确认后立即返回结果。
+seer.result: "查验结果：{{.Target}} · {{.Mark}}"
+seer.none: "已按默认选择处理：本轮未查验任何玩家。"

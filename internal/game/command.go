@@ -144,6 +144,14 @@ type SeerCheckCommand struct {
 
 func (SeerCheckCommand) command() {}
 
+// SeerConfirmCommand 锁定预言家的待确认查验目标（docs §夜间 4、§8.3：
+// 确认前可修改，确认后立即返回二分结果并提前结束阶段）。
+type SeerConfirmCommand struct {
+	Meta CommandMeta
+}
+
+func (SeerConfirmCommand) command() {}
+
 // SpeakCommand 是白天麦序发言内容。
 type SpeakCommand struct {
 	Meta CommandMeta

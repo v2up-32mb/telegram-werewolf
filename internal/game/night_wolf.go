@@ -256,6 +256,19 @@ func (r reducer) resolveWolfVotes(st State) (State, []Effect, error) {
 
 	// 第二轮（或唯一多数）：平票由注入 RNG 随机落定。
 	if len(winners) > 1 {
+		// 候选先按座位（空刀 nil 视为最小）稳定排序：Go map 迭代顺序
+		// 随机，若不排序会使同一注入 RNG 值选出不同目标，测试与日志
+		// 无法复现；排序不改变「均匀随机选中」的领域语义（docs §夜间 2
+		// 第二轮平票随机落定）。
+		sort.Slice(winners, func(i, j int) bool {
+			if winners[i] == nil {
+				return true
+			}
+			if winners[j] == nil {
+				return false
+			}
+			return *winners[i] < *winners[j]
+		})
 		idx, err := r.rng.Intn(len(winners))
 		if err != nil {
 			return st, nil, fmt.Errorf("game: wolf tie rng: %w", err)

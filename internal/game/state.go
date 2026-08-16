@@ -70,6 +70,15 @@ type NightState struct {
 	WitchSaveChoice   *bool // 解药窗口：true=使用解药，false=不使用
 	WitchPoisonChoice *Seat // 毒药窗口：已选择的目标（nil=未选目标）
 	WitchPoisonSkip   bool  // 毒药窗口：已选择「不使用毒药」
+
+	// 预言家夜间（Task 31，docs §夜间 4、§8.3 预言家）：
+	// SeerActive 表示查验窗口开启（false=未开始/已结束）；SeerPending
+	// 是待确认查验目标（nil=未选择，确认前可反复修改）；SeerResults
+	// 保存查验历史二分结果（CampWolf/CampGood，跨夜持续携带），
+	// SeerChecked 同步记录已查验座位（docs §5 私密标记仅预言家可见）。
+	SeerActive  bool
+	SeerPending *Seat
+	SeerResults map[Seat]Camp
 }
 
 // DayState 是白天发言阶段的最小状态（麦序模式）。
@@ -134,6 +143,15 @@ func (s State) Copy() State {
 	if s.Night.WitchPoisonChoice != nil {
 		v := *s.Night.WitchPoisonChoice
 		c.Night.WitchPoisonChoice = &v
+	}
+
+	if s.Night.SeerPending != nil {
+		v := *s.Night.SeerPending
+		c.Night.SeerPending = &v
+	}
+	c.Night.SeerResults = make(map[Seat]Camp, len(s.Night.SeerResults))
+	for seat, camp := range s.Night.SeerResults {
+		c.Night.SeerResults[seat] = camp
 	}
 
 	c.Day.SpeechOrder = append([]Seat(nil), s.Day.SpeechOrder...)

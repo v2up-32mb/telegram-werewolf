@@ -55,14 +55,22 @@ func (r reducer) Reduce(state State, cmd Command) (State, []Effect, error) {
 			return r.witchPoisonSelect(state, c)
 		case WitchConfirmCommand:
 			return r.witchConfirm(state, c)
+		case SeerCheckCommand:
+			return r.seerCheck(state, c)
+		case SeerConfirmCommand:
+			return r.seerConfirm(state, c)
 		case TimeoutCommand:
 			// 狼人投票轮内超时弃刀；女巫窗口内超时不用任何药；
-			// 两者都未开启时保持既有未实现语义（reducer_test 契约）。
+			// 预言家窗口内超时空验；全未开启时保持既有未实现语义
+			// （reducer_test 契约）。
 			if state.Night.WolfRound > 0 {
 				return r.wolfTimeout(state, c)
 			}
 			if state.Night.WitchStage > WitchStageClosed {
 				return r.witchTimeout(state, c)
+			}
+			if state.Night.SeerActive {
+				return r.seerTimeout(state, c)
 			}
 		}
 	}
@@ -95,6 +103,8 @@ func commandMeta(cmd Command) (CommandMeta, error) {
 	case WitchConfirmCommand:
 		return c.Meta, nil
 	case SeerCheckCommand:
+		return c.Meta, nil
+	case SeerConfirmCommand:
 		return c.Meta, nil
 	case SpeakCommand:
 		return c.Meta, nil
