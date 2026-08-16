@@ -8,10 +8,12 @@
 error.generic: "出错了，请稍后重试"
 error.invalid_input: "输入无效：{{.Detail}}"
 
-# 主菜单
+# 主菜单（docs 游戏流程设计.md §一.6：/start 出主菜单，/newgame 直接建）
 menu.main: |
-  欢迎使用狼人杀 Bot！
-  输入 /new 创建房间，/join 加入房间。
+  🏠 欢迎使用狼人杀 Bot！
+
+  输入 /newgame 创建房间，/join 加入房间。
+  其他命令：/role 身份、/score 积分、/leave 退出、/rank 排行榜（后续开放）、/help 帮助。
 
 # 阶段消息
 phase.night.title: "🌙 第 {{.PhaseNumber}} 夜"
@@ -195,3 +197,39 @@ governance.host_dissolve.passed: "🏚 房主强制解散了房间（扣除 10 �
 settlement.victory: "🏆 游戏结束，{{.Winner}} 阵营获胜！"
 settlement.report: "📜 本局结算战报：{{.Winner}} 阵营获胜。参与人、全员身份与积分变化见战报详情（本局不评 MVP，只记胜负）。"
 lobby.rematch: "🏠 房间已返回等待状态，沿用本局配置。「再来一局」已确认，从点击起至少保留 {{.WindowSeconds}} 秒供玩家选择退出；期间空位可等待新人加入或 AI 补位，满足开始条件后由房主开始游戏。"
+
+# 玩家命令与帮助入口（docs 游戏流程设计.md §命令清单、§新手引导、
+# §发言 4 自毁提示；命令回复一律 MarkdownV2 默认转义）
+help.commands: |
+  📖 命令清单：
+  /start 主菜单
+  /newgame 创建房间（可选自定义房间码）
+  /join <房间码或邀请链接> 加入房间
+  /role 查看我的身份
+  /score 查看我的积分
+  /leave 退出房间
+  /rank 排行榜（后续开放）
+  /help 帮助
+rules.intro: |
+  🎮 新手规则：
+  狼人夜晚选择击杀目标；好人白天投票放逐狼人。
+  神职或村民全灭（屠边）或好人全灭（屠城）时狼人获胜，
+  狼人全灭时好人获胜；胜负按行动顺序即时判定。
+  胜利 +5 分，对局中死亡但阵营胜利 +2 分，失败 0 分，
+  恶意退出按规则扣分或不得分。
+speech.self_destruct_hint: |
+  ⚠️ 发言提示：你的发言消息（无论是否成功转发）将在 3 秒后自动
+  删除，防止消息堆积顶掉阶段消息。
+commands.private_only: "🔒 请私聊 Bot 使用命令。"
+commands.no_room: "🏠 你不在任何房间中。"
+commands.dead: "💀 你已死亡，无法执行该操作。"
+commands.no_role_yet: "🎴 尚未发牌，暂无身份。"
+commands.already_in_room: "🏠 你已在房间中，无法重复创建。"
+commands.role: "🎭 你现在的身份：{{.RoleName}}（{{.CampName}}）"
+commands.score: "⭐ 当前积分：{{.Points}}"
+commands.newgame_done: "🏠 房间已创建，等待玩家加入（/join <房间码>）。"
+commands.join_done: "✅ 已加入房间。"
+commands.leave_done: "🚪 已退出房间。"
+rank.placeholder: "📊 排行榜功能后续开放，敬请期待。"
+commands.room_full: "🈵 房间已满员，无法加入。"
+commands.wrong_password: "🔑 房间密码错误，请重试（不限次数）。"
