@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: test and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt (repository-wide)
+        run: |
+          unformatted=$(gofmt -l $(git ls-files '*.go'))
+          if [ -n "$unformatted" ]; then
+            echo "gofmt needed on:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go test ./...
+        run: go test ./...
+
+      - name: go vet ./...
+        run: go vet ./...
+
+      - name: make check
+        run: make check
+
+      - name: CGO_ENABLED=0 go build ./cmd/werewolf
+        run: CGO_ENABLED=0 go build ./cmd/werewolf
+
+      - name: make build-all
+        run: make build-all
+
+      - name: git diff --check
+        run: git diff --check
+
+      - name: go test -race ./...
+        run: CGO_ENABLED=1 go test -race ./...
