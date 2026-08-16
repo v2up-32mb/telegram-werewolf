@@ -411,14 +411,14 @@ type p1Driver struct {
 
 func newP1Driver(t *testing.T, ctx context.Context, w *p0World, rd game.Reducer, clk *p1Clock, st game.State) *p1Driver {
 	d := &p1Driver{
-		t:             t,
-		ctx:           ctx,
-		w:             w,
-		rd:            rd,
-		clk:           clk,
-		st:            st,
+		t:              t,
+		ctx:            ctx,
+		w:              w,
+		rd:             rd,
+		clk:            clk,
+		st:             st,
 		outboxBaseline: len(w.outbox.auditSnapshot()),
-		userBySeat:    p1UserBySeat(st.Players),
+		userBySeat:     p1UserBySeat(st.Players),
 	}
 	for _, p := range st.Players {
 		switch p.Role {
@@ -771,7 +771,7 @@ func p1SeatParam(params map[string]any, key string) string {
 }
 
 // probeActor 用「必然被拒绝」的探测命令读取 Actor 当前状态
-//（ErrWrongPhase 后 reducer 不修改状态，Result.State 即当前状态）。
+// （ErrWrongPhase 后 reducer 不修改状态，Result.State 即当前状态）。
 func probeActor(t *testing.T, ctx context.Context, a *room.Actor, clk *p1Clock, id string) game.State {
 	res, err := a.Dispatch(ctx, game.ConfirmRoleCommand{
 		Meta: game.CommandMeta{ID: id, Actor: 0, ExpectedPhase: game.Phase(99), PhaseVersion: 0, ReceivedAt: clk.Now()},
@@ -926,7 +926,7 @@ func TestP1NightEndToEnd(t *testing.T) {
 	defer w.close()
 
 	const (
-		host = game.UserID(101)
+		host     = game.UserID(101)
 		roomCode = game.RoomID("P1NIGHT")
 	)
 	if _, err := w.createRoom(host, "p1-c0", string(roomCode)); err != nil {
