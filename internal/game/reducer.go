@@ -49,11 +49,20 @@ func (r reducer) Reduce(state State, cmd Command) (State, []Effect, error) {
 			return r.wolfVote(state, c)
 		case WolfConfirmCommand:
 			return r.wolfConfirm(state, c)
+		case WitchSaveCommand:
+			return r.witchSave(state, c)
+		case WitchPoisonCommand:
+			return r.witchPoisonSelect(state, c)
+		case WitchConfirmCommand:
+			return r.witchConfirm(state, c)
 		case TimeoutCommand:
-			// 狼人投票轮内超时弃刀；无穷人轮（WolfRound=0）时保持
-			// 既有未实现语义（reducer_test 契约）。
+			// 狼人投票轮内超时弃刀；女巫窗口内超时不用任何药；
+			// 两者都未开启时保持既有未实现语义（reducer_test 契约）。
 			if state.Night.WolfRound > 0 {
 				return r.wolfTimeout(state, c)
+			}
+			if state.Night.WitchStage > WitchStageClosed {
+				return r.witchTimeout(state, c)
 			}
 		}
 	}
@@ -78,6 +87,12 @@ func commandMeta(cmd Command) (CommandMeta, error) {
 	case WolfConfirmCommand:
 		return c.Meta, nil
 	case WitchUseCommand:
+		return c.Meta, nil
+	case WitchSaveCommand:
+		return c.Meta, nil
+	case WitchPoisonCommand:
+		return c.Meta, nil
+	case WitchConfirmCommand:
 		return c.Meta, nil
 	case SeerCheckCommand:
 		return c.Meta, nil
@@ -154,6 +169,11 @@ func validateTarget(state State, cmd Command) error {
 		return requireSeat(*c.Target, inRoom, true)
 	case WitchUseCommand:
 		return requireSeat(c.Target, inRoom, false)
+	case WitchPoisonCommand:
+		if c.Target == nil {
+			return nil // 不使用毒药
+		}
+		return requireSeat(*c.Target, inRoom, true)
 	case SeerCheckCommand:
 		return requireSeat(c.Target, inRoom, true)
 	case VoteCommand:

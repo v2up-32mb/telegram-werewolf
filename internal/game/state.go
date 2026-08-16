@@ -56,6 +56,20 @@ type NightState struct {
 	WolfVotes  map[Seat]*Seat
 	WolfLocked map[Seat]bool
 	WolfRound  int
+
+	// 女巫夜间（Task 30，docs §夜间 3、§8.2 女巫）：
+	// WitchStage 是连续决策窗口（0=关闭/未开始，1=解药窗口，
+	// 2=毒药窗口）；WitchFirstNight 记录是否首夜（自救仅首夜可选，
+	// 由接线层调用 beginWitchPhase 时传入）；WitchUsedTonight 是本夜
+	// 是否已用一瓶（beginWitchPhase 重置，reducer 保证一夜一瓶）；
+	// WitchSaveChoice/WitchPoisonChoice/WitchPoisonSkip 是各窗口的
+	// 待确认选择（确认前可修改，确认后锁定）。
+	WitchStage        WitchStage
+	WitchFirstNight   bool
+	WitchUsedTonight  bool
+	WitchSaveChoice   *bool // 解药窗口：true=使用解药，false=不使用
+	WitchPoisonChoice *Seat // 毒药窗口：已选择的目标（nil=未选目标）
+	WitchPoisonSkip   bool  // 毒药窗口：已选择「不使用毒药」
 }
 
 // DayState 是白天发言阶段的最小状态（麦序模式）。
@@ -111,6 +125,15 @@ func (s State) Copy() State {
 	c.Night.WolfLocked = make(map[Seat]bool, len(s.Night.WolfLocked))
 	for seat, locked := range s.Night.WolfLocked {
 		c.Night.WolfLocked[seat] = locked
+	}
+
+	if s.Night.WitchSaveChoice != nil {
+		v := *s.Night.WitchSaveChoice
+		c.Night.WitchSaveChoice = &v
+	}
+	if s.Night.WitchPoisonChoice != nil {
+		v := *s.Night.WitchPoisonChoice
+		c.Night.WitchPoisonChoice = &v
 	}
 
 	c.Day.SpeechOrder = append([]Seat(nil), s.Day.SpeechOrder...)

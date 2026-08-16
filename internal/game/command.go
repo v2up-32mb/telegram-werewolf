@@ -109,6 +109,33 @@ type WitchUseCommand struct {
 
 func (WitchUseCommand) command() {}
 
+// WitchSaveCommand 是女巫解药窗口的用药选择（docs §夜间 3、§8.2：
+// 救/不救二选一，确认前可修改）：Use=true 表示使用解药（目标即今晚
+// 刀口），false 表示不使用解药。
+type WitchSaveCommand struct {
+	Meta CommandMeta
+	Use  bool
+}
+
+func (WitchSaveCommand) command() {}
+
+// WitchPoisonCommand 是女巫毒药窗口的选择（docs §夜间 3、§8.2：
+// 选择毒谁或不使用毒药，确认前可修改）：Target=nil 表示「不使用毒药」。
+type WitchPoisonCommand struct {
+	Meta   CommandMeta
+	Target *Seat
+}
+
+func (WitchPoisonCommand) command() {}
+
+// WitchConfirmCommand 锁定女巫当前窗口的待确认选择（docs §夜间 3：
+// 确认后不能撤回；确认完成后可提前结束阶段）。
+type WitchConfirmCommand struct {
+	Meta CommandMeta
+}
+
+func (WitchConfirmCommand) command() {}
+
 // SeerCheckCommand 是预言家夜间的查验选择。
 type SeerCheckCommand struct {
 	Meta   CommandMeta

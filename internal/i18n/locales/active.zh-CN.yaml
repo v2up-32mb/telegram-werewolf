@@ -77,3 +77,31 @@ wolf.vote: |
   选择后请点击「确认选择」，确认后本轮不能修改。
 wolf.vote.locked: "你已确认{{.Target}}，本轮不能修改。"
 wolf.tie: "⚠️ 出现平票，进入第 {{.Round}} 轮投票。"
+
+# 女巫夜间（docs §夜间 3、§8.2 女巫）
+action.witch.poison.prompt: "请选择要毒杀的玩家（或不使用毒药）："
+witch.potion.available: "可用"
+witch.potion.used: "已用"
+witch.peace_night: "平安夜"
+witch.kill_reveal: "今晚狼人选择的目标：{{.Target}}"
+witch.save.prompt: |
+  {{.Prompt}}
+  解药：{{.SaveStatus}}
+  毒药：{{.PoisonStatus}}
+
+  选择后请点击「确认选择」，确认后不能修改。
+witch.poison.prompt: |
+  {{.Prompt}}
+  {{.Targets}}
+  [不使用毒药]
+  解药：{{.SaveStatus}}
+  毒药：{{.PoisonStatus}}
+
+  选择后请点击「确认选择」，确认后不能修改。
+witch.save.locked: "你已确认{{.Choice}}。"
+witch.poison.locked: "你已确认{{.Choice}}。"
+witch.none: "已按默认选择处理：本夜不使用任何药品。"
+witch.choice.save_used: "使用解药"
+witch.choice.save_not_used: "不使用解药"
+witch.choice.poison_used: "毒杀 {{.Seat}}"
+witch.choice.poison_not_used: "不使用毒药"

@@ -53,11 +53,12 @@ func (a Audience) String() string {
 }
 
 // sensitiveAudiences 是允许接收对应敏感消息前缀的受众集合。
-// wolf.*、seer.* 与 role.* 都是私密视图，禁止以 Public 受众广播。
+// wolf.*、seer.*、witch.* 与 role.* 都是私密视图，禁止以 Public 受众广播。
 var sensitiveAudiences = map[string][]Audience{
-	"wolf.": {AudienceWolf, AudienceGodView},
-	"seer.": {AudienceSeer, AudienceGodView},
-	"role.": {AudienceActor, AudienceGodView},
+	"wolf.":  {AudienceWolf, AudienceGodView},
+	"seer.":  {AudienceSeer, AudienceGodView},
+	"witch.": {AudienceActor, AudienceGodView},
+	"role.":  {AudienceActor, AudienceGodView},
 }
 
 // MessageEffect 表示一条待发送的语义化消息（key + 参数），
@@ -89,9 +90,9 @@ func NewMessageEffect(a Audience, key string, params map[string]any) (MessageEff
 	return MessageEffect{Audience: a, Key: key, Params: params}, nil
 }
 
-// keyPrefix 返回消息 key 的静态私密前缀（如 wolf.、seer.）。
+// keyPrefix 返回消息 key 的静态私密前缀（如 wolf.、seer.、witch.）。
 func keyPrefix(key string) string {
-	for _, prefix := range []string{"wolf.", "seer.", "role."} {
+	for _, prefix := range []string{"wolf.", "seer.", "witch.", "role."} {
 		if strings.HasPrefix(key, prefix) {
 			return prefix
 		}
