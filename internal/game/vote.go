@@ -26,12 +26,14 @@ import (
 //     day-start 键一致）。
 //
 // 已知缺口（如实记录，不阻塞本任务）：
-//  1. 平票（含全员弃权）不裁决、不放逐，完整平票流程（加时发言/缩圈/
-//     最终对决）属 Task 37；
-//  2. 白天放逐后的胜负即时判定由后续结算任务/接线层调用 EvaluateVictory
+//  1. 白天放逐后的胜负即时判定由后续结算任务/接线层调用 EvaluateVictory
 //     （docs §结算 1：白天为投票先触发者获胜）；
-//  3. 遗言窗口真实 30 秒计时与删除消息的定时执行属接线层任务（reducer
+//  2. 遗言窗口真实 30 秒计时与删除消息的定时执行属接线层任务（reducer
 //     只产出 TimerEffect/DelayEffect 等效果）。
+//
+// 平票（含加时发言/缩圈/无发言轮/最终对决）已由 Task 37 在
+// tie_vote.go 实现：真实平票进入平票流程，不再直接进入黑夜；
+// 全员弃权/零票不放逐、直接结束白天。
 
 // 白天投票消息 key（docs §8.4 白天投票；vote.* 与 last_words.* 均为
 // 公共安全前缀，不在 NewMessageEffect 敏感前缀列表中）。
@@ -49,7 +51,8 @@ const (
 	// counts/abstain。
 	VoteTallyMessageKey = "vote.tally"
 	// VoteResultMessageKey 是放逐结果（AudiencePublic）：params exiled
-	//（nil=平票/未放逐，平票流程属 Task 37）。
+	//（nil=无人被放逐：全员弃权/零票；真实平票已走平票流程 tie_vote.go，
+	// 平票未落定不输出本消息）。
 	VoteResultMessageKey = "vote.result"
 	// VoteDeleteMessageKey 是投票临时消息删除（AudienceActor）：params
 	// seat。
@@ -137,6 +140,11 @@ func (r reducer) vote(st State, cmd VoteCommand) (State, []Effect, error) {
 	if st.Vote.Stage != VoteStageOpen {
 		return st, nil, ErrVoteClosed
 	}
+	if st.Vote.Tie != TieNone {
+		// 平票流程各轮（加时发言/缩圈/无发言/最终对决）走 tie_vote.go
+		// 的专用目标与弃权边界校验。
+		return r.tieVote(st, cmd)
+	}
 	seat, ok := seatByUser(st.Players, cmd.Meta.Actor)
 	if !ok {
 		return st, nil, ErrNotInRoom
@@ -166,6 +174,10 @@ func (r reducer) vote(st State, cmd VoteCommand) (State, []Effect, error) {
 func (r reducer) voteConfirm(st State, cmd VoteConfirmCommand) (State, []Effect, error) {
 	if st.Vote.Stage != VoteStageOpen {
 		return st, nil, ErrVoteClosed
+	}
+	if st.Vote.Tie != TieNone {
+		// 平票轮次确认走 tie_vote.go：确认后按平票轮类型结算/推进。
+		return r.tieVoteConfirm(st, cmd)
 	}
 	seat, ok := seatByUser(st.Players, cmd.Meta.Actor)
 	if !ok {
@@ -227,26 +239,17 @@ func (r reducer) voteTimeout(st State, cmd TimeoutCommand) (State, []Effect, err
 
 // settleVote 结算白天投票（docs §投票 1：结束后按「逐人明细 → 票数统计
 // → 放逐结果」统一公布；期间任何效果不携带实时票数）：
-//   - 唯一最高票 → 放逐（Vote.Exiled、玩家 Dead=true）；
-//   - 平票（含全员弃权）→ 不放逐（Exiled=nil，结果说明平票；完整平票
-//     流程属 Task 37，见文件头已知缺口 1）；
+//   - 唯一最高票 → 放逐并走 Task 36 既有落定路径（resolveExile）；
+//   - 全员弃权/零票 → 无人被放逐（vote.result 的 exiled=nil），直接结束
+//     白天（不进平票流程）；
+//   - ≥2 名候选并列最高票（票数 >0）→ 首次平票 → 进入加时发言平票流程
+//     （tie_vote.go enterTieSpeech；docs §投票 4），平票未落定不输出
+//     vote.result；
 //   - 效果顺序：TimerEffect Cancel → 逐人 vote.delete（投票临时消息删除
 //     在前，与 deal.go completeDealTransition 的 delete 在前一致）→
-//     vote.detail → vote.tally → vote.result；
-//   - 遗言绑定「不报身份」：默认（RevealRoleOnDeath=false）且有人被票死
-//     时进入 Stage=LastWords（30 秒遗言窗口：last_words.prompt +
-//     TimerEffect），遗言结束或超时后再进入黑夜；报身份（=true）时无
-//     遗言直接进入黑夜（finishDayVote）。
+//     vote.detail → vote.tally →（vote.result 或 tie.* 平票公告）。
 func (r reducer) settleVote(st State, at time.Time) (State, []Effect, error) {
-	next := st.Copy()
-	next.Vote.Stage = VoteStageClosed
-
-	counts, abstain := tallyVotes(next.Vote.Ballots)
-	if exiled := topVoteTarget(counts); exiled != nil {
-		seat := *exiled
-		next.Vote.Exiled = &seat
-		markPlayerDead(next.Players, seat)
-	}
+	counts, abstain := tallyVotes(st.Vote.Ballots)
 
 	effects := make([]Effect, 0, len(st.Players)+5)
 	effects = append(effects, TimerEffect{Phase: PhaseDayVote, Cancel: true})
@@ -258,7 +261,7 @@ func (r reducer) settleVote(st State, at time.Time) (State, []Effect, error) {
 		effects = append(effects, del)
 	}
 	detail, err := NewMessageEffect(AudiencePublic, VoteDetailMessageKey, map[string]any{
-		"ballots": next.Vote.Ballots,
+		"ballots": st.Vote.Ballots,
 	})
 	if err != nil {
 		return st, nil, fmt.Errorf("game: vote detail: %w", err)
@@ -270,20 +273,63 @@ func (r reducer) settleVote(st State, at time.Time) (State, []Effect, error) {
 	if err != nil {
 		return st, nil, fmt.Errorf("game: vote tally: %w", err)
 	}
+	effects = append(effects, detail, tally)
+
+	if exiled := topVoteTarget(counts); exiled != nil {
+		return r.resolveExile(st, at, effects, *exiled)
+	}
+	if len(counts) == 0 {
+		// 全员弃权/零票 → 无人被放逐，直接结束白天（docs §投票 4：
+		// 与平票区分；Exiled=nil 语义为「无人被放逐」）。
+		next := st.Copy()
+		next.Vote.Stage = VoteStageClosed
+		result, err := NewMessageEffect(AudiencePublic, VoteResultMessageKey, map[string]any{
+			"exiled": nil,
+		})
+		if err != nil {
+			return st, nil, fmt.Errorf("game: vote result: %w", err)
+		}
+		effects = append(effects, result)
+		after, transition, err := finishDayVote(next)
+		if err != nil {
+			return st, nil, err
+		}
+		return after, append(effects, transition...), nil
+	}
+	// 首次平票：多个候选并列最高票（票数 >0）→ 加时发言平票流程。
+	return r.enterTieSpeech(st, at, effects, topTiedTargets(counts))
+}
+
+// resolveExile 处理白天放逐落定（Task 36 既有路径；Task 37 平票缩圈/
+// 无发言轮/最终对决复用）：记录 Exiled、标记死亡、清除平票阶段字段
+// （保留 Excluded 供对决排除记录可观测），公布 vote.result 后按模式
+// 进入遗言窗口或直接进入黑夜。
+func (r reducer) resolveExile(st State, at time.Time, base []Effect, exiled Seat) (State, []Effect, error) {
+	next := st.Copy()
+	seat := exiled
+	next.Vote.Exiled = &seat
+	markPlayerDead(next.Players, seat)
+	next.Vote.Tie = TieNone
+	next.Vote.TieRound = 0
+	next.Vote.Candidates = nil
+	// Excluded 保留：最终对决随机/超时排除记录在落定后仍可观测
+	//（接线层据此告知玩家；下一白天 BeginVote 会重建 VoteState）。
+
 	result, err := NewMessageEffect(AudiencePublic, VoteResultMessageKey, map[string]any{
 		"exiled": next.Vote.Exiled,
 	})
 	if err != nil {
 		return st, nil, fmt.Errorf("game: vote result: %w", err)
 	}
-	effects = append(effects, detail, tally, result)
+	effects := append([]Effect{}, base...)
+	effects = append(effects, result)
 
-	if next.Vote.Exiled != nil && !next.Settings.RevealRoleOnDeath {
+	if !next.Settings.RevealRoleOnDeath {
 		// 默认「不报身份」：被票死者有 30 秒遗言（docs §结算 4）。
 		next.Vote.Stage = VoteStageLastWords
 		deadline := at.Add(time.Duration(LastWordsSeconds) * time.Second)
 		prompt, err := NewMessageEffect(AudienceActor, LastWordsPromptMessageKey, map[string]any{
-			"seat":     *next.Vote.Exiled,
+			"seat":     seat,
 			"deadline": deadline,
 		})
 		if err != nil {
@@ -293,6 +339,8 @@ func (r reducer) settleVote(st State, at time.Time) (State, []Effect, error) {
 		return next, effects, nil
 	}
 
+	// 报身份模式无遗言：收票窗口关闭后直接进入黑夜。
+	next.Vote.Stage = VoteStageClosed
 	after, transition, err := finishDayVote(next)
 	if err != nil {
 		return st, nil, err
@@ -388,8 +436,9 @@ func tallyVotes(ballots map[Seat]Seat) (counts map[Seat]int, abstain int) {
 	return counts, abstain
 }
 
-// topVoteTarget 返回唯一最高票目标；平票（含全员弃权/零票）返回 nil
-// （完整平票流程属 Task 37，本任务不裁决，见文件头已知缺口 1）。
+// topVoteTarget 返回唯一最高票目标；多人并列最高票或全员弃权/零票返回
+// nil（平票语义由调用方区分：真实平票进入 tie_vote.go 平票流程，
+// 全员弃权直接结束白天）。
 func topVoteTarget(counts map[Seat]int) *Seat {
 	var best Seat
 	bestN := 0

@@ -578,8 +578,9 @@ func TestVoteRevealModeSkipsLastWords(t *testing.T) {
 	}
 }
 
-// TestVoteTieNoExile 验证平票（Task 37 完整平票流程前的最小契约）：
-// 不放逐、不死亡、结果注明平票；代码注释记录已知缺口。
+// TestVoteTieNoExile 验证平票进入完整平票流程：不放逐、不死亡、
+// 不进入黑夜，先进入加时发言（docs 游戏流程设计.md §投票 4；完整流程
+// 由 Task 37 tie_vote.go 实现）。
 func TestVoteTieNoExile(t *testing.T) {
 	st := beginVote(t, voteReadyState(true))
 	r := NewReducer()
@@ -587,7 +588,6 @@ func TestVoteTieNoExile(t *testing.T) {
 	// 1/2/3 投 4，4/5/6 投 1 → 3:3 平票。
 	after := st
 	var err error
-	var effects []Effect
 	for _, actor := range []UserID{1, 2, 3} {
 		after, _, err = r.Reduce(after, voteCmd(voteID("v", actor), actor, seatPtr(4)))
 		if err != nil {
@@ -603,26 +603,25 @@ func TestVoteTieNoExile(t *testing.T) {
 		if err != nil {
 			t.Fatalf("VoteCommand %d error = %v", actor, err)
 		}
-		after, effects, err = r.Reduce(after, voteConfirmCmd(voteID("c", actor), actor))
+		after, _, err = r.Reduce(after, voteConfirmCmd(voteID("c", actor), actor))
 		if err != nil {
 			t.Fatalf("VoteConfirmCommand %d error = %v", actor, err)
 		}
 	}
-	// 第二轮循环中座位 6 的确认即全员确认，结算在此时完成（
-	// effects 取第二轮最后一次 Reduce 的结果）。
+	// 平票未落定：不放逐、无人死亡、不进入黑夜，进入加时发言。
 	if after.Vote.Exiled != nil {
-		t.Fatalf("平票 Exiled = %v, want nil（不放逐，Task 37 处理）", *after.Vote.Exiled)
+		t.Fatalf("平票 Exiled = %v, want nil（待平票流程）", *after.Vote.Exiled)
 	}
 	for _, p := range after.Players {
 		if p.Dead {
 			t.Fatalf("平票不得有人死亡：座位 %d", p.Seat)
 		}
 	}
-	if !containsKey(messageKeys(effects), VoteResultMessageKey) {
-		t.Errorf("平票结算缺少 vote.result：%v", effects)
+	if after.Vote.Tie != TieSpeech {
+		t.Fatalf("Tie = %v, want TieSpeech", after.Vote.Tie)
 	}
-	if after.Phase != PhaseNight {
-		t.Fatalf("Phase = %v, want PhaseNight", after.Phase)
+	if after.Phase != PhaseDayVote {
+		t.Fatalf("Phase = %v, want PhaseDayVote（平票流程内不进入黑夜）", after.Phase)
 	}
 }
 

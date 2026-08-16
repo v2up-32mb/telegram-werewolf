@@ -51,11 +51,22 @@ func (r reducer) Reduce(state State, cmd Command) (State, []Effect, error) {
 		case VoteConfirmCommand:
 			return r.voteConfirm(state, c)
 		case TimeoutCommand:
-			// 收票窗口超时弃票；遗言窗口超时无正文结束白天。
+			// 收票窗口超时弃票；遗言窗口超时无正文结束白天；平票流程
+			// 各阶段超时：加时发言推进缩圈、缩圈/无发言轮弃票、最终
+			// 对决失权（tie_vote.go，docs §投票 4 与「超时与默认选择」）。
 			if state.Vote.Stage == VoteStageLastWords {
 				return r.lastWordsTimeout(state, c)
 			}
-			return r.voteTimeout(state, c)
+			switch state.Vote.Tie {
+			case TieSpeech:
+				return r.tieSpeechTimeout(state, c)
+			case TieRunoff, TieNoSpeech:
+				return r.tieRoundTimeout(state, c)
+			case TieFinal:
+				return r.tieFinalTimeout(state, c)
+			default:
+				return r.voteTimeout(state, c)
+			}
 		case LastWordsCommand:
 			return r.lastWords(state, c)
 		}

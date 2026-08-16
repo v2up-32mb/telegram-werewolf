@@ -101,9 +101,10 @@ func TestVoteTallyViewRendersCounts(t *testing.T) {
 	}
 }
 
-// TestVoteResultViewExiledAndTie 验证放逐结果：唯一最高票显示被放逐座位，
-// 平票（Exiled=nil）显示平票文案。
-func TestVoteResultViewExiledAndTie(t *testing.T) {
+// TestVoteResultViewExiledAndNone 验证放逐结果：唯一最高票显示被放逐
+// 座位；无人被放逐（全员弃权，Exiled=nil）显示「无人被放逐」——真实
+// 平票已走平票流程，不再输出 nil 结果（docs 游戏流程设计.md §投票 4）。
+func TestVoteResultViewExiledAndNone(t *testing.T) {
 	r := newRoleTestRenderer(t)
 
 	got, err := NewVoteResultView(r, seatPtr(2))
@@ -116,10 +117,10 @@ func TestVoteResultViewExiledAndTie(t *testing.T) {
 
 	got, err = NewVoteResultView(r, nil)
 	if err != nil {
-		t.Fatalf("NewVoteResultView(平票) error = %v", err)
+		t.Fatalf("NewVoteResultView(无人被放逐) error = %v", err)
 	}
-	if !strings.Contains(got, "平票") {
-		t.Errorf("平票结果 = %q, want 含「平票」", got)
+	if !strings.Contains(got, "无人被放逐") {
+		t.Errorf("无放逐结果 = %q, want 含「无人被放逐」", got)
 	}
 }
 
@@ -168,5 +169,105 @@ func TestVoteViewsRejectNilRenderer(t *testing.T) {
 	}
 	if _, err := NewLastWordsView(nil, 1, "遗言"); err == nil {
 		t.Errorf("NewLastWordsView(nil) 应报错")
+	}
+}
+
+// TestTieViews 验证平票流程视图：加时发言公告/发言提示、缩圈公告与提示、
+// 无发言轮公告、最终对决公告与对决提示、被排除投票人通知（docs §投票 4）。
+func TestTieViews(t *testing.T) {
+	r := newRoleTestRenderer(t)
+	candidates := []game.Seat{1, 4}
+
+	speech, err := NewTieSpeechView(r, candidates)
+	if err != nil {
+		t.Fatalf("NewTieSpeechView error = %v", err)
+	}
+	if !strings.Contains(speech, "平票") || !strings.Contains(speech, "1号") || !strings.Contains(speech, "4号") {
+		t.Errorf("加时发言公告 = %q, want 含平票与候选", speech)
+	}
+
+	turn, err := NewTieSpeechTurnView(r, game.Seat(1), voteDeadline())
+	if err != nil {
+		t.Fatalf("NewTieSpeechTurnView error = %v", err)
+	}
+	if !strings.Contains(turn, "1号") || !strings.Contains(turn, "2026-08-16 12:00:00") {
+		t.Errorf("加时发言提示 = %q, want 含座位与截止时刻", turn)
+	}
+
+	runoff, err := NewTieRunoffView(r, candidates)
+	if err != nil {
+		t.Fatalf("NewTieRunoffView error = %v", err)
+	}
+	if !strings.Contains(runoff, "第 2 次投票") || !strings.Contains(runoff, "1号") {
+		t.Errorf("缩圈公告 = %q, want 含第 2 次投票与候选", runoff)
+	}
+
+	noSpeech, err := NewTieNoSpeechView(r, 2, candidates)
+	if err != nil {
+		t.Fatalf("NewTieNoSpeechView error = %v", err)
+	}
+	if !strings.Contains(noSpeech, "第 2 轮") || !strings.Contains(noSpeech, "无发言投票") {
+		t.Errorf("无发言轮公告 = %q, want 含轮次与无发言投票", noSpeech)
+	}
+
+	final, err := NewTieFinalView(r, candidates)
+	if err != nil {
+		t.Fatalf("NewTieFinalView error = %v", err)
+	}
+	if !strings.Contains(final, "最终对决") || !strings.Contains(final, "禁止弃权") {
+		t.Errorf("最终对决公告 = %q, want 含最终对决与禁止弃权", final)
+	}
+
+	runoffPrompt, err := NewTieRunoffPromptView(r, game.Seat(2), candidates, voteDeadline())
+	if err != nil {
+		t.Fatalf("NewTieRunoffPromptView error = %v", err)
+	}
+	if !strings.Contains(runoffPrompt, "2号") || !strings.Contains(runoffPrompt, "确认") {
+		t.Errorf("缩圈提示 = %q, want 含座位与确认提示", runoffPrompt)
+	}
+
+	duelPrompt, err := NewTieDuelPromptView(r, game.Seat(2), candidates, voteDeadline())
+	if err != nil {
+		t.Fatalf("NewTieDuelPromptView error = %v", err)
+	}
+	if !strings.Contains(duelPrompt, "禁止弃权") || !strings.Contains(duelPrompt, "1号") {
+		t.Errorf("对决提示 = %q, want 含禁止弃权与候选", duelPrompt)
+	}
+
+	excluded, err := NewTieDuelExcludedView(r, game.Seat(3))
+	if err != nil {
+		t.Fatalf("NewTieDuelExcludedView error = %v", err)
+	}
+	if !strings.Contains(excluded, "3号") || !strings.Contains(excluded, "失去投票权") {
+		t.Errorf("被排除通知 = %q, want 含座位与失去投票权", excluded)
+	}
+}
+
+// TestTieViewsRejectNilRenderer 验证平票视图 nil renderer 显式报错。
+func TestTieViewsRejectNilRenderer(t *testing.T) {
+	candidates := []game.Seat{1, 4}
+	if _, err := NewTieSpeechView(nil, candidates); err == nil {
+		t.Errorf("NewTieSpeechView(nil) 应报错")
+	}
+	if _, err := NewTieSpeechTurnView(nil, 1, voteDeadline()); err == nil {
+		t.Errorf("NewTieSpeechTurnView(nil) 应报错")
+	}
+	if _, err := NewTieRunoffView(nil, candidates); err == nil {
+		t.Errorf("NewTieRunoffView(nil) 应报错")
+	}
+	if _, err := NewTieNoSpeechView(nil, 1, candidates); err == nil {
+		t.Errorf("NewTieNoSpeechView(nil) 应报错")
+	}
+	if _, err := NewTieFinalView(nil, candidates); err == nil {
+		t.Errorf("NewTieFinalView(nil) 应报错")
+	}
+	if _, err := NewTieRunoffPromptView(nil, 1, candidates, voteDeadline()); err == nil {
+		t.Errorf("NewTieRunoffPromptView(nil) 应报错")
+	}
+	if _, err := NewTieDuelPromptView(nil, 1, candidates, voteDeadline()); err == nil {
+		t.Errorf("NewTieDuelPromptView(nil) 应报错")
+	}
+	if _, err := NewTieDuelExcludedView(nil, 1); err == nil {
+		t.Errorf("NewTieDuelExcludedView(nil) 应报错")
 	}
 }

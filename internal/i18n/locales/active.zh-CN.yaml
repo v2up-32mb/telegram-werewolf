@@ -132,8 +132,38 @@ vote.tally: |
   🗳 票数统计
   {{.Lines}}
 vote.result: "⚖️ 放逐结果：{{.Target}}"
-vote.result.tie: "⚖️ 放逐结果：平票，无人被放逐（完整平票流程见后续任务）"
+vote.result.none: "⚖️ 放逐结果：无人被放逐"
 vote.delete: "投票消息已结束"
+
+# 平票（docs 游戏流程设计.md §投票 4、阶段消息设计.md §8.5 平票；
+# 真实平票不再输出 vote.result，平票过程全部追加当天白天主消息）
+tie.speech: |
+  ⚖️ 出现平票：{{.Candidates}}。
+  📣 平票玩家依次加时发言，随后进行第 2 次投票。
+tie.speech_turn: |
+  🎙 加时发言 · {{.Seat}}
+  请在 {{.Deadline}} 前结束发言。
+tie.runoff: |
+  🔁 第 2 次投票：仅在平票玩家 {{.Candidates}} 中投票。
+tie.runoff_prompt: |
+  🗳 第 2 次投票 · {{.Seat}}
+  {{.Targets}}
+
+  选择后请点击「确认投票」，确认后锁定。
+  截止时刻：{{.Deadline}}
+tie.no_speech: |
+  🗳 第 {{.Round}} 轮无发言投票：仅在平票玩家间投票。
+  平票候选：{{.Candidates}}
+tie.final: |
+  ⚔️ 最终对决：{{.Candidates}}
+  禁止弃权，必须投其中一人。
+tie.duel_prompt: |
+  ⚔️ 最终对决 · {{.Seat}}
+  {{.Targets}}
+
+  禁止弃权，必须投其中一人。
+  截止时刻：{{.Deadline}}
+tie.duel_excluded: "🎲 座位 {{.Seat}} 本轮被排除出投票（仅本轮失去投票权，不死亡、不影响后续进程）。"
 
 # 遗言（docs 游戏流程设计.md §结算 4、§死亡玩家 4：遗言正常转播）
 last_words.prompt: |
