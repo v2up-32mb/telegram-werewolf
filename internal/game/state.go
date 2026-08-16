@@ -87,9 +87,36 @@ type DayState struct {
 	SpeechOrder []Seat
 }
 
-// VoteState 是白天投票阶段的最小状态：投票人 → 目标座位。
+// VoteStage 是白天投票阶段内的子阶段。
+type VoteStage int
+
+const (
+	VoteStageClosed    VoteStage = iota
+	VoteStageOpen                // 收票窗口：选择→确认，确认后锁定
+	VoteStageLastWords           // 遗言窗口：仅被票死者（「不报身份」模式）
+)
+
+// Valid 报告投票子阶段是否为已知取值。
+func (s VoteStage) Valid() bool {
+	return s >= VoteStageClosed && s <= VoteStageLastWords
+}
+
+// VoteState 是白天投票阶段的最小状态（docs 游戏流程设计.md §投票、
+// §结算 4 遗言、阶段消息设计.md §8.4）：
+//   - Stage：收票/遗言/关闭子阶段；
+//   - Ballots：确认后的票（投票人 → 目标座位；0=弃权）；
+//   - Pending：待确认选择（键存在且 nil=弃权待确认，与 Night.WolfVotes
+//     的 nil 键保留语义一致；键不存在=未选择）；
+//   - Locked：已确认锁定（确认后不能修改/重复确认）；
+//   - Exiled：放逐结果（nil=平票或未放逐；完整平票流程属 Task 37）；
+//   - LastWords：遗言正文（空=未发表；仅「不报身份」模式启用）。
 type VoteState struct {
-	Ballots map[Seat]Seat
+	Stage     VoteStage
+	Ballots   map[Seat]Seat
+	Pending   map[Seat]*Seat
+	Locked    map[Seat]bool
+	Exiled    *Seat
+	LastWords string
 }
 
 // SettledState 是结算阶段的胜利快照。
@@ -159,6 +186,25 @@ func (s State) Copy() State {
 	c.Vote.Ballots = make(map[Seat]Seat, len(s.Vote.Ballots))
 	for from, to := range s.Vote.Ballots {
 		c.Vote.Ballots[from] = to
+	}
+
+	c.Vote.Pending = make(map[Seat]*Seat, len(s.Vote.Pending))
+	for seat, target := range s.Vote.Pending {
+		if target != nil {
+			v := *target
+			c.Vote.Pending[seat] = &v
+		} else {
+			// nil=弃权待确认，键必须保留（与「未选择」区分）。
+			c.Vote.Pending[seat] = nil
+		}
+	}
+	c.Vote.Locked = make(map[Seat]bool, len(s.Vote.Locked))
+	for seat, locked := range s.Vote.Locked {
+		c.Vote.Locked[seat] = locked
+	}
+	if s.Vote.Exiled != nil {
+		v := *s.Vote.Exiled
+		c.Vote.Exiled = &v
 	}
 
 	c.Processed = make(map[string]bool, len(s.Processed))

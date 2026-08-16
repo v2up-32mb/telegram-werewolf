@@ -43,6 +43,22 @@ func (r reducer) Reduce(state State, cmd Command) (State, []Effect, error) {
 		case TimeoutCommand:
 			return r.timeoutDeal(state, c)
 		}
+	case PhaseDayVote:
+		// 白天投票（Task 36）：选择/确认/锁定/超时弃票/遗言。
+		switch c := cmd.(type) {
+		case VoteCommand:
+			return r.vote(state, c)
+		case VoteConfirmCommand:
+			return r.voteConfirm(state, c)
+		case TimeoutCommand:
+			// 收票窗口超时弃票；遗言窗口超时无正文结束白天。
+			if state.Vote.Stage == VoteStageLastWords {
+				return r.lastWordsTimeout(state, c)
+			}
+			return r.voteTimeout(state, c)
+		case LastWordsCommand:
+			return r.lastWords(state, c)
+		}
 	case PhaseNight:
 		switch c := cmd.(type) {
 		case WolfVoteCommand:
@@ -110,6 +126,10 @@ func commandMeta(cmd Command) (CommandMeta, error) {
 		return c.Meta, nil
 	case VoteCommand:
 		return c.Meta, nil
+	case VoteConfirmCommand:
+		return c.Meta, nil
+	case LastWordsCommand:
+		return c.Meta, nil
 	case TimeoutCommand:
 		return c.Meta, nil
 	default:
@@ -129,9 +149,11 @@ func validate(state State, cmd Command, meta CommandMeta) error {
 		return ErrStalePhaseVersion
 	}
 	switch cmd.(type) {
-	case TimeoutCommand:
-		// 系统命令：仅校验阶段与版本（已通过），豁免 Actor 在场/存活
-		// 校验（docs/技术选型.md §6.2 Timer 投递 Timeout Command）。
+	case TimeoutCommand, LastWordsCommand:
+		// 系统/特殊命令：仅校验阶段与版本（已通过），豁免 Actor 在场/
+		// 存活校验（docs/技术选型.md §6.2 Timer 投递 Timeout Command；
+		// LastWordsCommand 的 actor 是被票死者，已 Dead，由 vote.go
+		// reducer 专门校验 Actor==被票死者）。
 		return nil
 	case CreateRoomCommand, JoinRoomCommand:
 		// 创建/加入命令：Actor 在房间建立完成前尚未成为玩家。

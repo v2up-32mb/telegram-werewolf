@@ -114,3 +114,30 @@ seer.prompt: |
   选择后请点击「确认查验」，确认后立即返回结果。
 seer.result: "查验结果：{{.Target}} · {{.Mark}}"
 seer.none: "已按默认选择处理：本轮未查验任何玩家。"
+
+# 白天投票（docs 游戏流程设计.md §投票、阶段消息设计.md §8.4、
+# §3.3 时间文案；§4.3 长度不变量）
+vote.prompt: |
+  {{.Prompt}}
+  {{.Targets}}
+  [弃权]
+
+  选择后请点击「确认投票」，确认前可修改，确认后锁定。
+  截止时刻：{{.Deadline}}
+vote.locked: "你已确认{{.Target}}，本轮不能修改。"
+vote.detail: |
+  📊 投票明细
+  {{.Lines}}
+vote.tally: |
+  🗳 票数统计
+  {{.Lines}}
+vote.result: "⚖️ 放逐结果：{{.Target}}"
+vote.result.tie: "⚖️ 放逐结果：平票，无人被放逐（完整平票流程见后续任务）"
+vote.delete: "投票消息已结束"
+
+# 遗言（docs 游戏流程设计.md §结算 4、§死亡玩家 4：遗言正常转播）
+last_words.prompt: |
+  💬 遗言 · {{.Seat}}
+  你已被放逐，可在 30 秒内发表最后的遗言。
+  截止时刻：{{.Deadline}}
+last_words.published: "💬 遗言（{{.Seat}}）：{{.Text}}"

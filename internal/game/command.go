@@ -169,6 +169,25 @@ type VoteCommand struct {
 
 func (VoteCommand) command() {}
 
+// VoteConfirmCommand 锁定投票人的待确认选择（docs §投票 1、§8.4：
+// 确认前可改票，确认后锁定；弃权也需要确认；全部有票权玩家确认后
+// 提前结束）。
+type VoteConfirmCommand struct {
+	Meta CommandMeta
+}
+
+func (VoteConfirmCommand) command() {}
+
+// LastWordsCommand 是被票死者在遗言窗口发表的遗言（docs §结算 4：
+// 仅「不报身份」模式有 30 秒遗言并正常转播；狼人自爆永远无遗言属
+// Task 38 自爆路径，本任务不实现自爆）。
+type LastWordsCommand struct {
+	Meta CommandMeta
+	Text string
+}
+
+func (LastWordsCommand) command() {}
+
 // TimeoutCommand 是阶段超时命令，携带期望阶段与版本供校验
 // （docs/技术选型.md §6.2）。
 type TimeoutCommand struct {
