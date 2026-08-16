@@ -60,3 +60,20 @@ deal.confirm_done: |
   ━━━━━━━━━━━━━━
 
   你已确认身份，请等待其他玩家。
+
+# 狼人夜间（docs/阶段消息设计.md §夜间 2、§狼人标识）
+wolf.discuss: |
+  🐺 狼人讨论 · 第 {{.Round}} 轮
+
+  狼队友：{{.WolfMates}}
+
+  选择并确认今晚的击杀目标（可击杀任意存活玩家，包括自己和狼队友）。
+wolf.vote: |
+  {{.Prompt}}
+  第 {{.Round}} 轮
+
+  {{.Targets}}
+
+  选择后请点击「确认选择」，确认后本轮不能修改。
+wolf.vote.locked: "你已确认{{.Target}}，本轮不能修改。"
+wolf.tie: "⚠️ 出现平票，进入第 {{.Round}} 轮投票。"

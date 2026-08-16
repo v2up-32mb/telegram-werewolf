@@ -19,6 +19,11 @@ type State struct {
 	Vote    VoteState
 	Settled SettledState
 
+	// Settings 是建房后房主配置快照（docs「房间设置修改截止」：发牌后
+	// 全部锁定）。由接线层填充；零值表示调用方未填充，领域测试必须
+	// 显式设置 DefaultRoomSettings()。
+	Settings RoomSettings
+
 	// Processed 记录已受理的 Command ID，用于拒绝重复 Command
 	// （防止重复结算，docs/技术选型.md §13.2）。
 	Processed map[string]bool
@@ -42,6 +47,15 @@ type NightState struct {
 	WitchPoisonUsed   bool          // 毒药是否已用
 	WitchPoisonTarget *Seat         // 毒药目标（nil 表示未用）
 	SeerChecked       map[Seat]bool // 预言家已查验的座位
+
+	// 狼人投票（Task 29，docs §夜间 2）：
+	// WolfVotes 记录每只存活狼人的当前选择（nil=空刀，仅
+	// Settings.WolfMustKill=false 时允许）；WolfLocked 记录已确认锁定
+	//（确认后本轮不能修改）；WolfRound 为投票轮次（0=未开始/已结束，
+	// 1=第一轮，2=第二轮平票重开）。
+	WolfVotes  map[Seat]*Seat
+	WolfLocked map[Seat]bool
+	WolfRound  int
 }
 
 // DayState 是白天发言阶段的最小状态（麦序模式）。
@@ -82,6 +96,21 @@ func (s State) Copy() State {
 	c.Night.SeerChecked = make(map[Seat]bool, len(s.Night.SeerChecked))
 	for seat, checked := range s.Night.SeerChecked {
 		c.Night.SeerChecked[seat] = checked
+	}
+
+	c.Night.WolfVotes = make(map[Seat]*Seat, len(s.Night.WolfVotes))
+	for seat, target := range s.Night.WolfVotes {
+		if target != nil {
+			v := *target
+			c.Night.WolfVotes[seat] = &v
+		} else {
+			// nil=空刀投票，键必须保留（与「未投票」区分）。
+			c.Night.WolfVotes[seat] = nil
+		}
+	}
+	c.Night.WolfLocked = make(map[Seat]bool, len(s.Night.WolfLocked))
+	for seat, locked := range s.Night.WolfLocked {
+		c.Night.WolfLocked[seat] = locked
 	}
 
 	c.Day.SpeechOrder = append([]Seat(nil), s.Day.SpeechOrder...)

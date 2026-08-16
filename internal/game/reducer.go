@@ -43,6 +43,19 @@ func (r reducer) Reduce(state State, cmd Command) (State, []Effect, error) {
 		case TimeoutCommand:
 			return r.timeoutDeal(state, c)
 		}
+	case PhaseNight:
+		switch c := cmd.(type) {
+		case WolfVoteCommand:
+			return r.wolfVote(state, c)
+		case WolfConfirmCommand:
+			return r.wolfConfirm(state, c)
+		case TimeoutCommand:
+			// 狼人投票轮内超时弃刀；无穷人轮（WolfRound=0）时保持
+			// 既有未实现语义（reducer_test 契约）。
+			if state.Night.WolfRound > 0 {
+				return r.wolfTimeout(state, c)
+			}
+		}
 	}
 	return state, nil, ErrNotImplemented
 }
@@ -59,6 +72,10 @@ func commandMeta(cmd Command) (CommandMeta, error) {
 	case ConfirmRoleCommand:
 		return c.Meta, nil
 	case WolfKillCommand:
+		return c.Meta, nil
+	case WolfVoteCommand:
+		return c.Meta, nil
+	case WolfConfirmCommand:
 		return c.Meta, nil
 	case WitchUseCommand:
 		return c.Meta, nil
@@ -128,6 +145,13 @@ func validateTarget(state State, cmd Command) error {
 	switch c := cmd.(type) {
 	case WolfKillCommand:
 		return requireSeat(c.Target, inRoom, false)
+	case WolfVoteCommand:
+		// nil=主动空刀（仅 Settings.WolfMustKill=false 允许，由夜间
+		// reducer 拦截）；非 nil 必须为房间内存活玩家（含自己与狼队友）。
+		if c.Target == nil {
+			return nil
+		}
+		return requireSeat(*c.Target, inRoom, true)
 	case WitchUseCommand:
 		return requireSeat(c.Target, inRoom, false)
 	case SeerCheckCommand:

@@ -81,6 +81,25 @@ type WolfKillCommand struct {
 
 func (WolfKillCommand) command() {}
 
+// WolfVoteCommand 是狼人夜间的刀人选择（docs §夜间 2：讨论与投票并行、
+// 确认前最终选择可覆盖）。Target=nil 表示主动空刀，
+// 仅当 Settings.WolfMustKill=false 时允许（docs「狼人空刀」：
+// 默认必须刀人，空刀默认关闭；「弃刀」仅作为超时惩罚存在）。
+type WolfVoteCommand struct {
+	Meta   CommandMeta
+	Target *Seat
+}
+
+func (WolfVoteCommand) command() {}
+
+// WolfConfirmCommand 锁定狼人本人当前选择（docs §夜间 2：每名存活狼人
+// 选择后须点击「确认选择」，确认后本轮不能修改）。
+type WolfConfirmCommand struct {
+	Meta CommandMeta
+}
+
+func (WolfConfirmCommand) command() {}
+
 // WitchUseCommand 是女巫夜间的用药选择（解药/毒药二选一）。
 type WitchUseCommand struct {
 	Meta   CommandMeta
