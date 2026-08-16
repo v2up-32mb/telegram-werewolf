@@ -1,16 +1,27 @@
 package game
 
-// reducer 是 Reducer 接口的骨架实现：前置通用 validator + 阶段分派。
-// 具体角色规则由后续 Task 在各阶段 reducer 中实现。
-type reducer struct{}
+// reducer 是 Reducer 接口的实现：前置通用 validator + 阶段分派。
+// 尚未实现的阶段返回 ErrNotImplemented 且不修改状态。
+type reducer struct {
+	rng RNG
+}
 
-// NewReducer 返回 Reducer 骨架实例。
-func NewReducer() Reducer { return reducer{} }
+// NewReducer 返回 Reducer 实例；生产随机源为 CryptoRNG。
+func NewReducer() Reducer { return reducer{rng: CryptoRNG{}} }
+
+// NewReducerWithRNG 返回使用注入随机源的 Reducer（发牌洗牌可复现，
+// docs/技术选型.md §5.2）；rng 为空时回退 CryptoRNG。
+func NewReducerWithRNG(rng RNG) Reducer {
+	if rng == nil {
+		rng = CryptoRNG{}
+	}
+	return reducer{rng: rng}
+}
 
 // Reduce 先执行通用拒绝规则（重复 ID、阶段、版本、在场、存活、目标），
 // 全部通过后按阶段分派；任意拒绝都返回哨兵错误且不修改 State
 // （docs/技术选型.md §13.1：非法命令不得部分修改状态）。
-func (reducer) Reduce(state State, cmd Command) (State, []Effect, error) {
+func (r reducer) Reduce(state State, cmd Command) (State, []Effect, error) {
 	meta, err := commandMeta(cmd)
 	if err != nil {
 		return state, nil, err
@@ -18,8 +29,21 @@ func (reducer) Reduce(state State, cmd Command) (State, []Effect, error) {
 	if err := validate(state, cmd, meta); err != nil {
 		return state, nil, err
 	}
-	// 分派到阶段 reducer。骨架阶段尚未实现任何对局逻辑，
-	// 返回明确错误且不修改状态。
+	// 分派到阶段 reducer。已实现的阶段（Lobby 开始 / Deal 确认与超时）
+	// 进入 deal.go 的领域流程；其余阶段返回明确错误且不修改状态。
+	switch state.Phase {
+	case PhaseLobby:
+		if cmd, ok := cmd.(StartGameCommand); ok {
+			return r.startGame(state, cmd)
+		}
+	case PhaseDeal:
+		switch c := cmd.(type) {
+		case ConfirmRoleCommand:
+			return r.confirmRole(state, c)
+		case TimeoutCommand:
+			return r.timeoutDeal(state, c)
+		}
+	}
 	return state, nil, ErrNotImplemented
 }
 

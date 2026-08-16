@@ -46,3 +46,17 @@ button.seat: "{{.Seat}}号{{.Mark}}"
 
 # 身份卡
 role_card.caption: "你抽到了 {{.RoleName}}！请确认你的身份。"
+
+# 发牌确认（docs/阶段消息设计.md §6.2）
+deal.confirm_prompt: |
+  👁 身份确认
+  ━━━━━━━━━━━━━━
+
+  请确认你已经查看并记住自己的身份。
+
+  当前状态：尚未确认
+deal.confirm_done: |
+  👁 身份确认
+  ━━━━━━━━━━━━━━
+
+  你已确认身份，请等待其他玩家。
