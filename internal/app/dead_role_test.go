@@ -48,7 +48,7 @@ func TestDeadViewerGetsNoButtons(t *testing.T) {
 			{UserID: 1, Seat: 1, Role: game.RoleWitch, Dead: true}, // 已死亡女巫
 			{UserID: 2, Seat: 2, Role: game.RoleWolf},
 		},
-		Settings: game.DefaultRoomSettings(),
+		Settings:  game.DefaultRoomSettings(),
 		Processed: map[string]bool{},
 	}
 	v := viewerContext(st, 1) // 死者视角
@@ -93,8 +93,8 @@ func TestDeadRolePumpScalesTimerToTwoThirds(t *testing.T) {
 			{UserID: 5, Seat: 5, Role: game.RoleVillager},
 			{UserID: 6, Seat: 6, Role: game.RoleVillager},
 		},
-		Night: game.NightState{WolfRound: 0, WitchStage: game.WitchStageClosed, SeerActive: false},
-		Settings: game.DefaultRoomSettings(),
+		Night:     game.NightState{WolfRound: 0, WitchStage: game.WitchStageClosed, SeerActive: false},
+		Settings:  game.DefaultRoomSettings(),
 		Processed: map[string]bool{},
 	}
 	d.rooms["DEAD02"] = &dirRoom{wolfStarted: true}

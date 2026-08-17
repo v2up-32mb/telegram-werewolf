@@ -103,6 +103,8 @@ func (r reducer) leaveGame(st State, cmd LeaveGameCommand) (State, []Effect, err
 			CooldownEffect{User: cmd.Meta.Actor, Duration: LeaveCooldown, Reason: LeaveReasonWolfExplode},
 			PersistEffect{Kind: PersistGameLeave},
 		)
+		// I6：房主游戏内离开 → 移交给下一位在场玩家（docs §房主移交）。
+		effects = maybeTransferHostOnLeave(&after, seat, effects)
 		return after, effects, nil
 	}
 
@@ -125,6 +127,8 @@ func (r reducer) leaveGame(st State, cmd LeaveGameCommand) (State, []Effect, err
 		CooldownEffect{User: cmd.Meta.Actor, Duration: LeaveCooldown, Reason: reason},
 		PersistEffect{Kind: PersistGameLeave},
 	}
+	// I6：房主游戏内退出 → 移交给下一位在场玩家。
+	effects = maybeTransferHostOnLeave(&next, seat, effects)
 	return next, effects, nil
 }
 
@@ -148,6 +152,31 @@ func markPlayerMalicious(players []Player, seat Seat) {
 			return
 		}
 	}
+}
+
+// maybeTransferHostOnLeave 在玩家离开/被移除后处理房主移交（docs §房主移交）：
+// 离开者是房主且仍有在场存活玩家时，按加入顺序（座位升序）移交给下一位，
+// 仅通知新房主（lobby.host_transferred，AudienceActor）。无存活玩家或离开者
+// 非房主时原样返回。base 为既有效果序列，追加移交通知后返回。
+func maybeTransferHostOnLeave(st *State, leavingSeat Seat, base []Effect) []Effect {
+	leaver := playerBySeat(st.Players, leavingSeat)
+	if leaver.UserID == 0 || st.Lobby.Owner != leaver.UserID {
+		return base
+	}
+	alive := aliveSeats(st.Players)
+	if len(alive) == 0 {
+		return base
+	}
+	newHost := playerBySeat(st.Players, alive[0]).UserID
+	st.Lobby.Owner = newHost
+	msg, err := NewMessageEffect(AudienceActor, HostTransferredMessageKey, map[string]any{
+		"room_code": string(st.RoomID),
+		"host":      newHost,
+	})
+	if err != nil {
+		return base
+	}
+	return append(base, msg)
 }
 
 // advanceTimeoutStreaks 处理一次超时事件的连续超时计数（docs §恶意退出
@@ -212,6 +241,8 @@ func (r reducer) advanceTimeoutStreaks(st State, at time.Time, unresponsive []Se
 				CooldownEffect{User: p.UserID, Duration: LeaveCooldown, Reason: LeaveReasonForcedTimeout},
 				PersistEffect{Kind: PersistGameLeave},
 			)
+			// I6：被强制移除者若是房主 → 移交下一位。
+			effects = maybeTransferHostOnLeave(&next, p.Seat, effects)
 		}
 	}
 	return next, effects, nil

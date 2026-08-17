@@ -324,6 +324,8 @@ func (r reducer) settleGovernanceKick(st State, base []Effect) (State, []Effect,
 		CooldownEffect{User: playerBySeat(st.Players, target).UserID, Duration: LeaveCooldown, Reason: LeaveReasonVoteKicked},
 		PersistEffect{Kind: PersistGameLeave},
 	)
+	// I6：被投票踢出者若是房主 → 移交下一位（docs §房主移交）。
+	effects = maybeTransferHostOnLeave(&st, target, effects)
 	st.Governance.KickVotes = map[Seat]bool{}
 	st.Governance.KickTarget = nil
 	return st, effects, nil
