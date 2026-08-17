@@ -937,12 +937,53 @@ func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.Callbac
 		PhaseVersion:  act.PhaseVersion,
 		ReceivedAt:    act.ReceivedAt,
 	}
-	cmd, ok := telegram.CallbackCommand(payload, meta)
-	if !ok {
-		// 导演本地信号（end_speech 等）：交导演处理（B1-d）。
-		return h.w.director.handleAction(ctx, act)
+	// B3：无论成功/拒绝，每次 callback 都必须 answer（docs 阶段消息设计.md
+	// §9：短按钮反馈经顶部通知，show_alert=false）。
+	feedback := ""
+	if cmd, ok := telegram.CallbackCommand(payload, meta); ok {
+		if err := h.w.handleCommand(ctx, cmd); err != nil {
+			feedback = callbackFeedback(err)
+		}
+	} else if err := h.w.director.handleAction(ctx, act); err != nil {
+		feedback = "操作失败，请重试"
 	}
-	return h.w.handleCommand(ctx, cmd)
+	if act.CallbackQueryID != "" {
+		return h.w.answerCallback(act.CallbackQueryID, feedback)
+	}
+	return nil
+}
+
+// answerCallback 应答回调查询（OpAnswerCallback；空文本=纯 ACK，k 图书馆
+// 顶部通知 show_alert=false）。
+func (w *Wiring) answerCallback(callbackQueryID, text string) error {
+	if w.outbox == nil {
+		return errors.New("app: wiring outbox not attached")
+	}
+	return w.outbox.Enqueue(outbox.Message{
+		CorrelationID: "cb:" + callbackQueryID,
+		Operation:     telegram.OpAnswerCallback,
+		Priority:      outbox.PriorityHigh,
+		Payload:       telegram.Params{CallbackQueryID: callbackQueryID, Text: text},
+	})
+}
+
+// callbackFeedback 把领域拒绝映射为短顶部通知文案（docs §9 示例：
+// 操作已经过期 / 该目标已经死亡 等）。
+func callbackFeedback(err error) string {
+	switch {
+	case errors.Is(err, game.ErrStalePhaseVersion), errors.Is(err, game.ErrWrongPhase), errors.Is(err, room.ErrDeadlinePassed):
+		return "操作已经过期"
+	case errors.Is(err, game.ErrDeadPlayer):
+		return "你已死亡，无法操作"
+	case errors.Is(err, game.ErrInvalidTarget):
+		return "目标无效或已死亡"
+	case errors.Is(err, game.ErrVoteLocked), errors.Is(err, game.ErrWolfVoteLocked):
+		return "该操作已确认锁定"
+	case errors.Is(err, game.ErrNotHost):
+		return "仅房主可操作"
+	default:
+		return "操作失败，请重试"
+	}
 }
 
 // handleCommand 处理一条领域命令（建房后大厅回调 / 局内 Actor 分派）。
@@ -985,7 +1026,7 @@ func (w *Wiring) handleCommand(ctx context.Context, cmd game.Command) error {
 			}
 			if res.Err != nil {
 				w.log.Warn("app: start game rejected", "room", string(roomID), "error", res.Err)
-				return nil // 领域拒绝（人数不足等）：ACK，不重投
+				return res.Err // 领域拒绝（人数不足等）：供顶层回调反馈
 			}
 			// 发牌效果已由导演 OnApplied 扇出；导演同步 reg 状态（含 Adopt）。
 			return nil
@@ -1005,7 +1046,7 @@ func (w *Wiring) handleCommand(ctx context.Context, cmd game.Command) error {
 	}
 	if res.Err != nil {
 		w.log.Warn("app: command rejected", "room", string(roomID), "command", fmt.Sprintf("%T", cmd), "error", res.Err)
-		return nil
+		return res.Err
 	}
 	// 效果已由导演 OnApplied 扇出；导演同步 reg 状态（含 Adopt 的阶段推进）。
 	return nil

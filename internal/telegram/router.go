@@ -118,13 +118,14 @@ func callbackCommand(p *TokenPayload, meta game.CommandMeta) (game.Command, bool
 // reducer 动作（end_speech 等导演本地信号）分流给导演，reducer 动作再经
 // CallbackCommand 转为领域命令。
 type CallbackAction struct {
-	UpdateID      int64
-	Owner         game.UserID
-	Action        string
-	Target        string
-	ExpectedPhase game.Phase
-	PhaseVersion  uint64
-	ReceivedAt    time.Time
+	UpdateID        int64
+	Owner           game.UserID
+	Action          string
+	Target          string
+	ExpectedPhase   game.Phase
+	PhaseVersion    uint64
+	ReceivedAt      time.Time
+	CallbackQueryID string // B3：answerCallbackQuery 必答（docs §9）
 }
 
 // routeCallback 校验回调 token 并返回领域动作。
@@ -134,13 +135,14 @@ func (r *Router) routeCallback(u Update) (CallbackAction, bool) {
 		return CallbackAction{}, false
 	}
 	return CallbackAction{
-		UpdateID:      u.UpdateID,
-		Owner:         payload.Owner,
-		Action:        payload.Action,
-		Target:        payload.Target,
-		ExpectedPhase: payload.ExpectedPhase,
-		PhaseVersion:  payload.PhaseVersion,
-		ReceivedAt:    u.ReceivedAt,
+		UpdateID:        u.UpdateID,
+		Owner:           payload.Owner,
+		Action:          payload.Action,
+		Target:          payload.Target,
+		ExpectedPhase:   payload.ExpectedPhase,
+		PhaseVersion:    payload.PhaseVersion,
+		ReceivedAt:      u.ReceivedAt,
+		CallbackQueryID: u.CallbackQuery.ID,
 	}, true
 }
 

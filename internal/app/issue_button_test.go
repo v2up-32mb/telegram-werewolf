@@ -91,3 +91,52 @@ func TestWiringIssueButtonRoundTrip(t *testing.T) {
 		t.Fatalf("越权 DispatchAction: %v", err)
 	}
 }
+
+// TestCallbackActionAlwaysAnswered 是 B3 红测：每次回调动作都必须应答
+// answerCallbackQuery（docs 阶段消息设计.md §9：每次 Inline Keyboard 点击
+// 都必须回应 Callback Query；顶部通知 show_alert=false）。
+func TestCallbackActionAlwaysAnswered(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	rec := newRecordingSender(16)
+	sched := outbox.NewScheduler(rec.Send, 16)
+	defer func() { _ = sched.Close(ctx) }()
+	w, err := NewWiring(ctx, testConfig(), mustLogger(t, &bytes.Buffer{}))
+	if err != nil {
+		t.Fatalf("NewWiring: %v", err)
+	}
+	if err := w.Attach(db, sched); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+
+	// 无房玩家点击「投票」：命令被拒（无房）仍必须 answer 回调。
+	act := telegram.CallbackAction{
+		UpdateID: 7, Owner: 5001, Action: "vote", Target: "2",
+		ExpectedPhase: game.PhaseDayVote, PhaseVersion: 3, ReceivedAt: time.Now(),
+		CallbackQueryID: "cq-abc",
+	}
+	if err := w.ActionHandler().Handle(ctx, act); err != nil {
+		t.Fatalf("ActionHandler.Handle: %v", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	var gotAnswer bool
+	for time.Now().Before(deadline) {
+		select {
+		case m := <-rec.ch:
+			if m.Operation == telegram.OpAnswerCallback {
+				p := m.Payload.(telegram.Params)
+				if p.CallbackQueryID == "cq-abc" {
+					gotAnswer = true
+				}
+			}
+		case <-time.After(5 * time.Millisecond):
+		}
+		if gotAnswer {
+			break
+		}
+	}
+	if !gotAnswer {
+		t.Fatal("回调动作未被应答：缺少 answerCallbackQuery 出站消息")
+	}
+}
