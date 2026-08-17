@@ -54,6 +54,23 @@ func TestProductionSendClassifiesBadRequestAsPermanent(t *testing.T) {
 	}
 }
 
+func TestProductionSendClassifiesForbiddenAsPermanent(t *testing.T) {
+	// S13（Task 46）：403（用户拉黑等）与 400 同属永久错误分支，
+	// 中转环境（tg-api.510222.xyz）拉黑时 API 仍回 200 无法实机触发，
+	// 以显式红测覆盖 403→ErrForbidden→PermanentError 分类链路。
+	w := newClassifyWiring(t, &classifyClient{sendErr: telegram.ErrForbidden})
+	err := w.productionSend(context.Background(), outbox.Message{
+		ChatID: 1, Operation: telegram.OpSendText, Payload: telegram.Params{ChatID: 1, Text: "x"},
+	})
+	var pe *outbox.PermanentError
+	if !errors.As(err, &pe) {
+		t.Fatalf("err = %v, want *outbox.PermanentError（403 不可重试）", err)
+	}
+	if !errors.Is(err, telegram.ErrForbidden) {
+		t.Fatalf("err = %v, want 保持 ErrForbidden 语义", err)
+	}
+}
+
 func TestProductionSendClassifiesRateLimit(t *testing.T) {
 	w := newClassifyWiring(t, &classifyClient{sendErr: &telegram.RateLimitError{RetryAfter: 7 * time.Second, Err: errors.New("429")}})
 	err := w.productionSend(context.Background(), outbox.Message{
