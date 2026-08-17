@@ -349,11 +349,16 @@ func (r reducer) confirmWitchPoison(st State, cmd WitchConfirmCommand) (State, [
 // witchTimeout 处理女巫超时（docs「超时与默认选择」：女巫超时 → 不用
 // 解药、不用毒药）：不消耗任何药品、不随机用药，窗口关闭并收到
 // witch.none 默认提示（提示文案不出现「已跳过」措辞）。
+// I4：存活且未在解药窗口做出任何选择的女巫计入连续超时计数。
 func (r reducer) witchTimeout(st State, cmd TimeoutCommand) (State, []Effect, error) {
 	if st.Night.WitchStage < WitchStageSave {
 		return st, nil, ErrWitchActionClosed
 	}
-	next := st.Copy()
+	st1, fx1, err := r.advanceTimeoutStreaks(st, cmd.Meta.ReceivedAt, unresponsiveWitch(st))
+	if err != nil {
+		return st, nil, err
+	}
+	next := st1.Copy()
 	next.Processed[cmd.Meta.ID] = true
 	next.Night.WitchStage = WitchStageClosed
 	next.Night.WitchSaveChoice = nil
@@ -364,5 +369,23 @@ func (r reducer) witchTimeout(st State, cmd TimeoutCommand) (State, []Effect, er
 	if err != nil {
 		return st, nil, fmt.Errorf("game: witch none message: %w", err)
 	}
-	return next, []Effect{none}, nil
+	return next, append(fx1, none), nil
+}
+
+// unresponsiveWitch 返回女巫超时时是否计入连续计数：存活女巫且仍处于
+// 解药窗口（未做出任何已确认选择）；已进入毒药窗口（做出过选择）视为已
+// 操作 → 重置（docs「中间操作过则重置」）。
+func unresponsiveWitch(st State) []Seat {
+	seat, ok := witchSeat(st.Players)
+	if !ok {
+		return nil
+	}
+	p := playerBySeat(st.Players, seat)
+	if p.Dead || p.Left {
+		return nil
+	}
+	if st.Night.WitchStage == WitchStageSave {
+		return []Seat{seat}
+	}
+	return nil
 }

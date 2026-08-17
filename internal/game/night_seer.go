@@ -146,11 +146,16 @@ func (r reducer) seerConfirm(st State, cmd SeerConfirmCommand) (State, []Effect,
 // seerTimeout 处理预言家超时（docs「超时与默认选择」：预言家超时 →
 // 本轮空验（不随机查验、无结果））：不写入任何查验结果，窗口关闭并
 // 收到 seer.none 默认提示（提示文案不出现「已跳过」措辞）。
+// I4：存活且仍处于查验窗口的预言家计入连续超时计数。
 func (r reducer) seerTimeout(st State, cmd TimeoutCommand) (State, []Effect, error) {
 	if !st.Night.SeerActive {
 		return st, nil, ErrSeerActionClosed
 	}
-	next := st.Copy()
+	st1, fx1, err := r.advanceTimeoutStreaks(st, cmd.Meta.ReceivedAt, unresponsiveSeer(st))
+	if err != nil {
+		return st, nil, err
+	}
+	next := st1.Copy()
 	next.Processed[cmd.Meta.ID] = true
 	next.Night.SeerActive = false
 	next.Night.SeerPending = nil
@@ -159,5 +164,32 @@ func (r reducer) seerTimeout(st State, cmd TimeoutCommand) (State, []Effect, err
 	if err != nil {
 		return st, nil, fmt.Errorf("game: seer none message: %w", err)
 	}
-	return next, []Effect{none}, nil
+	return next, append(fx1, none), nil
+}
+
+// unresponsiveSeer 返回预言家超时时是否计入连续计数：存活预言家且查验
+// 窗口仍开启（未确认查验）。
+func unresponsiveSeer(st State) []Seat {
+	seat, ok := seerSeat(st.Players)
+	if !ok {
+		return nil
+	}
+	p := playerBySeat(st.Players, seat)
+	if p.Dead || p.Left {
+		return nil
+	}
+	if st.Night.SeerActive {
+		return []Seat{seat}
+	}
+	return nil
+}
+
+// seerSeat 返回预言家座位；不存在返回 ok=false。
+func seerSeat(players []Player) (Seat, bool) {
+	for _, p := range players {
+		if p.Role == RoleSeer && p.Seat.Valid() {
+			return p.Seat, true
+		}
+	}
+	return 0, false
 }

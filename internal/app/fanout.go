@@ -173,6 +173,10 @@ func allPlayerChats(st game.State) []int64 {
 // buttonsFor 为临时操作消息生成 inline keyboard（callback_data=不透明 token，
 // docs 技术选型.md §7.3；按钮 label 只显示座位号/私密标记，docs §5.2）。
 func (w *Wiring) buttonsFor(e game.MessageEffect, st game.State, v viewerCtx) (*telegram.ReplyMarkup, error) {
+	// I5：死亡玩家（上帝视角）不发送操作按钮（docs §夜间 6、§13.3 只读记录）。
+	if v.dead {
+		return nil, nil
+	}
 	mk := func(action, target string) string {
 		tok, err := w.IssueButton(v.user, action, target, st.Phase, st.PhaseVersion)
 		if err != nil {

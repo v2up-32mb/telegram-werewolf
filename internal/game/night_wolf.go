@@ -201,13 +201,34 @@ func (r reducer) wolfConfirm(st State, cmd WolfConfirmCommand) (State, []Effect,
 // wolfTimeout 处理狼人投票超时（docs「超时默认」：狼人夜晚刀人超时 →
 // 弃刀）：WolfKillTarget 保持 nil、WolfRound=0、删除存活狼人讨论/投票
 // 副本（上帝视角副本不删除）。
+// I4：未锁定存活狼人计入整局连续超时计数（docs §恶意退出判定②；死亡/已
+// 离开者由 advanceTimeoutStreaks 跳过）。
 func (r reducer) wolfTimeout(st State, cmd TimeoutCommand) (State, []Effect, error) {
 	if st.Night.WolfRound < 1 {
 		return st, nil, ErrWolfVoteClosed
 	}
-	next := st.Copy()
+	st1, fx1, err := r.advanceTimeoutStreaks(st, cmd.Meta.ReceivedAt, unresponsiveWolves(st))
+	if err != nil {
+		return st, nil, err
+	}
+	next := st1.Copy()
 	next.Processed[cmd.Meta.ID] = true
-	return endWolfPhase(next, nil)
+	after, fx2, err := endWolfPhase(next, nil)
+	if err != nil {
+		return st, nil, err
+	}
+	return after, append(fx1, fx2...), nil
+}
+
+// unresponsiveWolves 返回狼人超时时未确认锁定的存活狼人座位。
+func unresponsiveWolves(st State) []Seat {
+	var out []Seat
+	for _, seat := range aliveWolfSeats(st.Players) {
+		if !st.Night.WolfLocked[seat] {
+			out = append(out, seat)
+		}
+	}
+	return out
 }
 
 // resolveWolfVotes 在全部存活狼人确认后结算票数（docs §夜间 2）：

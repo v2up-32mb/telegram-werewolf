@@ -119,12 +119,20 @@ func (d *roomDirector) pump(roomID game.RoomID, st game.State) (game.State, []ga
 			st.Night.WitchStage == game.WitchStageClosed && !st.Night.SeerActive {
 			dr.witchStarted = true
 			next, fx, err := game.BeginWitchPhase(st, dr.night == 1)
+			if witchRoleDead(next) {
+				// I5：死亡神职阶段仍开启但按原时长 2/3 假等待（docs §夜间 6
+				// 防泄密）；操作按钮由 buttonsFor 对死亡接收者禁用。
+				fx = scaleDeadRoleTimers(fx)
+			}
 			return next, fx, true, err
 		}
 		if dr.witchStarted && !dr.seerStarted &&
 			st.Night.WitchStage == game.WitchStageClosed && !st.Night.SeerActive {
 			dr.seerStarted = true
 			next, fx, err := game.BeginSeerPhase(st)
+			if seerRoleDead(next) {
+				fx = scaleDeadRoleTimers(fx)
+			}
 			return next, fx, true, err
 		}
 		if dr.seerStarted && !st.Night.SeerActive {
@@ -446,6 +454,40 @@ func seerSeatOf(st game.State) (game.Seat, bool) {
 		}
 	}
 	return 0, false
+}
+
+// witchRoleDead 报告女巫是否在行动窗口开始前已死亡（docs §夜间 6：死亡神职
+// 不跳过阶段但假等待 2/3）。无女巫按死亡处理（防御）。
+func witchRoleDead(st game.State) bool {
+	seat, ok := witchSeatOf(st)
+	if !ok {
+		return true
+	}
+	return playerOfSeat(st, seat).Dead || playerOfSeat(st, seat).Left
+}
+
+// seerRoleDead 报告预言家是否在行动窗口开始前已死亡。
+func seerRoleDead(st game.State) bool {
+	seat, ok := seerSeatOf(st)
+	if !ok {
+		return true
+	}
+	return playerOfSeat(st, seat).Dead || playerOfSeat(st, seat).Left
+}
+
+// scaleDeadRoleTimers 把死亡神职阶段的计时器缩放为原时长的 2/3（I5，
+// docs §夜间 6 防泄密：存活玩家不能通过「阶段变快」推断该角色已死）。
+func scaleDeadRoleTimers(fx []game.Effect) []game.Effect {
+	out := make([]game.Effect, 0, len(fx))
+	for _, e := range fx {
+		if te, ok := e.(game.TimerEffect); ok {
+			te.Duration = game.DeadRoleStageDuration(te.Duration)
+			out = append(out, te)
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 // isSlashCommand 报告文本是否为 Bot 命令（发言拦截前置判断）。
