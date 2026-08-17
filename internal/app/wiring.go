@@ -62,6 +62,9 @@ type Wiring struct {
 
 	// settings 是房间设置服务（建房后大厅回调 SettingsCommand 使用）。
 	settings game.SettingsService
+	// tokens 是回调令牌注册表：与 Router 共用同一实例（B1-c），导演向
+	// 该注册表下发按钮 token，Router 校验同名 token（docs/技术选型.md §7.3）。
+	tokens *telegram.CallbackManager
 }
 
 // NewWiring 创建生产接线（此时不触网；Client 创建延后到首次发送时按需）。
@@ -95,6 +98,7 @@ func (w *Wiring) Attach(db *sql.DB, outbox *outbox.Scheduler) error {
 	}
 	w.db = db
 	w.outbox = outbox
+	w.tokens = telegram.NewCallbackManager(defaultCallbackTokenCapacity)
 
 	w.repo = storage.NewRoomRepository(db)
 	w.users = storage.NewUserRepository(db)
@@ -149,6 +153,22 @@ func (w *Wiring) CommandHandler() CommandHandler { return w.handler }
 // 或导演本地信号（end_speech 等）。App 对回调更新经 Router.DispatchAction
 // 分派到此。
 func (w *Wiring) ActionHandler() CallbackActionHandler { return &callbackActionHandler{w: w} }
+
+// Tokens 返回与 Router 共享的回调令牌注册表（Attach 后非 nil；B1-c）。
+func (w *Wiring) Tokens() *telegram.CallbackManager { return w.tokens }
+
+// IssueButton 为一名玩家在指定阶段/版本下发一个回调 token（不透明随机值，
+// docs/技术选型.md §7.3：payload 只存服务端；目标按钮由导演在渲染临时
+// 操作消息时经此下发）。未 Attach 时返回错误。
+func (w *Wiring) IssueButton(owner game.UserID, action, target string, phase game.Phase, version uint64) (string, error) {
+	if w.tokens == nil {
+		return "", errors.New("app: callback tokens not attached")
+	}
+	return w.tokens.Issue(telegram.TokenPayload{
+		Owner: owner, Action: action, Target: target,
+		ExpectedPhase: phase, PhaseVersion: version,
+	})
+}
 
 // TextHandler 返回玩家文本命令处理器（/start /newgame /join /role /score /leave /help /rank）。
 func (w *Wiring) TextHandler() TextHandler { return w.text }

@@ -53,6 +53,8 @@ type SendMessageParams struct {
 	ChatID    int64
 	Text      string
 	ParseMode string
+	// ReplyMarkup 为 inline keyboard（B1-c：角色操作/确认按钮）。
+	ReplyMarkup *ReplyMarkup
 }
 
 // EditMessageParams 是 editMessageText 参数。
@@ -151,11 +153,29 @@ func (c *clientImpl) GetMe(ctx context.Context) (*Me, error) {
 func (c *clientImpl) SendMessage(ctx context.Context, p SendMessageParams) (*SentMessage, error) {
 	msg, err := c.b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: p.ChatID, Text: p.Text, ParseMode: models.ParseMode(p.ParseMode),
+		ReplyMarkup: toInlineKeyboard(p.ReplyMarkup),
 	})
 	if err != nil {
 		return nil, wrapTelegramError(err)
 	}
 	return &SentMessage{MessageID: msg.ID}, nil
+}
+
+// toInlineKeyboard 把自持 ReplyMarkup 转为 go-telegram/bot 的
+// InlineKeyboardMarkup（nil 时返回 nil，不携带 reply_markup）。
+func toInlineKeyboard(rm *ReplyMarkup) *models.InlineKeyboardMarkup {
+	if rm == nil {
+		return nil
+	}
+	rows := make([][]models.InlineKeyboardButton, 0, len(rm.Rows))
+	for _, row := range rm.Rows {
+		btns := make([]models.InlineKeyboardButton, 0, len(row))
+		for _, b := range row {
+			btns = append(btns, models.InlineKeyboardButton{Text: b.Text, CallbackData: b.CallbackData})
+		}
+		rows = append(rows, btns)
+	}
+	return &models.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
 func (c *clientImpl) EditMessageText(ctx context.Context, p EditMessageParams) (*SentMessage, error) {

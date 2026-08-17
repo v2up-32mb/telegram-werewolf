@@ -305,9 +305,14 @@ func Build(ctx context.Context, cfg *config.Config, opts ...Option) (*App, error
 	log.Info("app: build", "step", "manager")
 
 	// Telegram：cursor store（sqlc）→ Deduper → CallbackManager → Router → Source。
+	// B1-c：Router 与 Wiring 共用同一 CallbackManager，导演下发的按钮 token
+	// 才能被 Router 校验接收。
 	cursor := sqliteCursorStore{db: db}
 	deduper := telegram.NewDeduper(defaultDeduperCapacity)
 	tokens := telegram.NewCallbackManager(defaultCallbackTokenCapacity)
+	if o.Wiring != nil && o.Wiring.Tokens() != nil {
+		tokens = o.Wiring.Tokens()
+	}
 	router := telegram.NewRouter(deduper, cursor, tokens)
 	initialOffset := router.InitialOffset(ctx)
 	source := o.Source

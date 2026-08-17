@@ -23,6 +23,19 @@ const (
 // 富文本统一使用 Telegram MarkdownV2（docs/技术选型.md §7.2）。
 const markdownV2 = "MarkdownV2"
 
+// InlineButton 是 inline keyboard 单按钮：label 只显示座位号/私密标记与
+// 操作名，callback_data 为不透明随机 token（docs/技术选型.md §7.3）。
+type InlineButton struct {
+	Text         string
+	CallbackData string
+}
+
+// ReplyMarkup 是 sendMessage/editMessageText 的 inline keyboard 载荷
+// （docs 阶段消息设计.md §5.2：目标按钮每行 3 个，不显示昵称/明文标记）。
+type ReplyMarkup struct {
+	Rows [][]InlineButton
+}
+
 // Params 是 operation 的执行参数（payload 由本包承载，不扩展 outbox.Message）。
 type Params struct {
 	ChatID          int64
@@ -32,6 +45,8 @@ type Params struct {
 	FileID          string
 	CallbackQueryID string
 	ShowAlert       bool
+	// ReplyMarkup 为 send_text/edit_message 的 inline keyboard（B1-c）。
+	ReplyMarkup *ReplyMarkup
 	// ParseMode 为空时文本类消息默认 MarkdownV2。
 	ParseMode string
 }
@@ -57,7 +72,7 @@ func (t *Transport) Send(ctx context.Context, op string, p Params) error {
 	}
 	switch op {
 	case OpSendText:
-		_, err := t.client.SendMessage(ctx, SendMessageParams{ChatID: p.ChatID, Text: p.Text, ParseMode: parseMode})
+		_, err := t.client.SendMessage(ctx, SendMessageParams{ChatID: p.ChatID, Text: p.Text, ParseMode: parseMode, ReplyMarkup: p.ReplyMarkup})
 		return err
 	case OpEditMessage:
 		_, err := t.client.EditMessageText(ctx, EditMessageParams{ChatID: p.ChatID, MessageID: p.MessageID, Text: p.Text, ParseMode: parseMode})

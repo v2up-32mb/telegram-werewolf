@@ -60,6 +60,37 @@ func TestClientSendMessage(t *testing.T) {
 	}
 }
 
+func TestClientSendMessageInlineKeyboard(t *testing.T) {
+	// B1-c：sendMessage 支持 inline keyboard（reply_markup：按钮 label +
+	// callback_data 不透明 token），导演据此下发角色操作按钮。
+	f := newFakeAPI(t, testToken)
+	c := mustClient(t, f)
+	rm := &ReplyMarkup{
+		Rows: [][]InlineButton{
+			{{Text: "1号", CallbackData: "tok-a"}, {Text: "2号🐺", CallbackData: "tok-b"}, {Text: "3号", CallbackData: "tok-c"}},
+			{{Text: "确认选择", CallbackData: "tok-confirm"}},
+		},
+	}
+	if _, err := c.SendMessage(context.Background(), SendMessageParams{
+		ChatID: 42, Text: "请选择击杀目标", ReplyMarkup: rm,
+	}); err != nil {
+		t.Fatalf("SendMessage with ReplyMarkup: %v", err)
+	}
+	recs := f.requestsFor("sendMessage")
+	if len(recs) != 1 {
+		t.Fatalf("sendMessage requests = %d, want 1", len(recs))
+	}
+	raw, ok := recs[0].Form["reply_markup"]
+	if !ok {
+		t.Fatalf("form 缺 reply_markup，got %v", recs[0].Form)
+	}
+	for _, want := range []string{"1号", "确认选择", "tok-a", "tok-confirm", "callback_data"} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("reply_markup 缺 %q，raw=%s", want, raw)
+		}
+	}
+}
+
 func TestClientEditMessageText(t *testing.T) {
 	f := newFakeAPI(t, testToken)
 	c := mustClient(t, f)
