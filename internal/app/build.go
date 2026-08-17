@@ -365,6 +365,7 @@ func Build(ctx context.Context, cfg *config.Config, opts ...Option) (*App, error
 		scanner:   scanner,
 		notifier:  notifier,
 		abortRepo: abortRepo,
+		wiring:    o.Wiring,
 		handler:   handler,
 		action:    actionHandler,
 		text:      o.TextHandler,

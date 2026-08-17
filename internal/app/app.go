@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync/atomic"
+	"time"
 
 	"github.com/v2up-32mb/telegram-werewolf/internal/config"
 	"github.com/v2up-32mb/telegram-werewolf/internal/game"
@@ -89,6 +90,7 @@ type App struct {
 	handler   CommandHandler
 	text      TextHandler
 	action    CallbackActionHandler
+	wiring    *Wiring // I7：闲置回收定时 SweepIdle（nil 时跳过）
 
 	sourceCancel context.CancelFunc
 
@@ -160,6 +162,7 @@ func (a *App) Run(ctx context.Context) error {
 	a.sourceStarted.Store(true)
 	go a.source.Start(sourceCtx)
 	go a.consumeUpdates(sourceCtx)
+	go a.idleLoop(sourceCtx)
 	if err := a.scanLeftoverAborts(ctx); err != nil {
 		a.log.Error("app: startup abort scan failed", "error", err)
 	}
@@ -178,6 +181,27 @@ func (a *App) Run(ctx context.Context) error {
 	defer cancel()
 	return a.Stop(stopCtx)
 }
+
+// idleLoop 定期评估大厅房间闲置回收（I7：docs 游戏流程设计.md §闲置回收；
+// 创建起 1 小时超时、前 10 分钟提醒一次）。
+func (a *App) idleLoop(ctx context.Context) {
+	if a.wiring == nil {
+		return
+	}
+	ticker := time.NewTicker(idleSweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.wiring.SweepIdle()
+		}
+	}
+}
+
+// idleSweepInterval 是闲置回收评估周期。
+const idleSweepInterval = 30 * time.Second
 
 // consumeUpdates 串行消费 Update 流与错误流；ctx 取消即退出。
 func (a *App) consumeUpdates(ctx context.Context) {

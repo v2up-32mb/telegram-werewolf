@@ -298,14 +298,41 @@ func settlementReportText(s game.Settlement) string {
 	return b.String()
 }
 
-// dissolveRoom 处理房间解散（投票解散/房主强制解散）：清理 storage 活跃行 +
-// 内存注册表 + 导演状态（docs 游戏流程设计.md §解散）。
+// dissolveRoom 处理房间解散（投票解散/房主强制解散/闲置过期）：清理 storage
+// 活跃行 + 内存注册表 + 导演状态（docs 游戏流程设计.md §解散、§闲置回收）。
 func (w *Wiring) dissolveRoom(roomID game.RoomID, _ game.DissolveReason) {
 	if err := w.repo.RemoveRoom(context.Background(), roomID); err != nil && !errors.Is(err, storage.ErrRoomNotFound) {
 		w.log.Warn("app: dissolve remove room", "room", string(roomID), "error", err)
 	}
 	w.reg.removeRoom(roomID)
 	w.director.release(roomID)
+}
+
+// SweepIdle 执行一轮闲置回收评估（I7）：对每个仍处等待大厅的房间调用
+// EvaluateIdle（创建起 1 小时、到期前 10 分钟提醒一次）；到期发通知并解散，
+// 游戏开始后（actor 非 nil / 非 lobby）不受影响（docs §闲置回收）。
+func (w *Wiring) SweepIdle() {
+	for _, code := range w.reg.roomCodes() {
+		lr, ok := w.reg.get(code)
+		if !ok || lr.actor != nil || lr.st.Phase != game.PhaseLobby {
+			continue
+		}
+		newLt, fx, err := w.life.EvaluateIdle(context.Background(), lr.life, lr.st)
+		if err != nil {
+			w.log.Warn("app: idle evaluate", "room", string(code), "error", err)
+			continue
+		}
+		w.reg.updateLifetime(code, newLt)
+		if err := w.fanOut(code, lr.st, fx); err != nil {
+			w.log.Warn("app: idle fanout", "room", string(code), "error", err)
+		}
+		for _, e := range fx {
+			if me, ok := e.(game.MessageEffect); ok && me.Key == game.RoomExpiredMessageKey {
+				w.dissolveRoom(code, game.DissolveReasonUnknown)
+				break
+			}
+		}
+	}
 }
 
 // applyCooldown 落地跨局加入冷却（I2：写 users.cooldown_until，docs

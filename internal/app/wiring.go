@@ -70,6 +70,8 @@ type Wiring struct {
 	tokens *telegram.CallbackManager
 	// director 是局内导演（B1-d）：挂在 Actor.OnApplied 上驱动阶段推进与扇出。
 	director *roomDirector
+	// life 是大厅生命周期服务（闲置回收评估，I7）。
+	life game.LobbyLifecycleService
 }
 
 // NewWiring 创建生产接线（此时不触网；Client 创建延后到首次发送时按需）。
@@ -125,6 +127,7 @@ func (w *Wiring) Attach(db *sql.DB, sched *outbox.Scheduler) error {
 	if err != nil {
 		return fmt.Errorf("app: wiring lifecycle service: %w", err)
 	}
+	w.life = life
 	settingsRepo := roomSettingsAdapter{repo: w.repo}
 	settingsSvc, err := game.NewSettingsService(settingsRepo)
 	if err != nil {
@@ -581,6 +584,26 @@ func (r *liveRegistry) removeRoom(code game.RoomID) {
 		delete(r.byUser, p.UserID)
 	}
 	delete(r.rooms, code)
+}
+
+// roomCodes 返回全部注册房间码（I7 闲置回收迭代用）。
+func (r *liveRegistry) roomCodes() []game.RoomID {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]game.RoomID, 0, len(r.rooms))
+	for code := range r.rooms {
+		out = append(out, code)
+	}
+	return out
+}
+
+// updateLifetime 更新房间闲置生命周期元数据（I7：续期/到期评估结果回写）。
+func (r *liveRegistry) updateLifetime(code game.RoomID, lt game.LobbyLifetime) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if lr, ok := r.rooms[code]; ok {
+		lr.life = lt
+	}
 }
 
 func (r *liveRegistry) pushPending(roomID game.RoomID, actor game.UserID, fx []game.Effect) {
