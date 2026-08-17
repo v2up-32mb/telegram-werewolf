@@ -138,46 +138,58 @@ func (h defaultCommandHandler) Handle(_ context.Context, cmd game.Command) error
 	return nil
 }
 
-// defaultAbortScanner 用 storage.RoomRepository.ListActive 扫描遗留房间。
+// defaultAbortScanner 用 RecoveryRepository 扫描遗留房间（含全部参与者，
+// B2；docs/技术选型.md §8.2 room_players 保留通知所需信息）。
 type defaultAbortScanner struct {
-	repo *storage.RoomRepository
+	db *sql.DB
 }
 
 func (s defaultAbortScanner) ListLeftover(ctx context.Context) ([]AbortedRoom, error) {
-	rows, err := s.repo.ListActive(ctx)
+	rooms, err := storage.NewRecoveryRepository(s.db).ListInterruptedRoomsOnStartup(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]AbortedRoom, 0, len(rows))
-	for _, r := range rows {
+	out := make([]AbortedRoom, 0, len(rooms))
+	for _, ir := range rooms {
+		players := make([]game.UserID, 0, len(ir.Players))
+		for _, p := range ir.Players {
+			players = append(players, game.UserID(p.UserID))
+		}
 		out = append(out, AbortedRoom{
-			Code:       game.RoomID(r.RoomCode),
-			HostUserID: game.UserID(r.HostUserID),
-			Phase:      r.Phase,
+			Code:       game.RoomID(ir.Room.RoomCode),
+			HostUserID: game.UserID(ir.Room.HostUserID),
+			Players:    players,
+			Phase:      ir.Room.Phase,
 		})
 	}
 	return out, nil
 }
 
-// defaultAbortNotifier 向房主私聊（房主 UserID 即私聊 ChatID）入队
-// Outbox 通知消息。完整玩家名单枚举需 room_players 查询，属后续任务。
+// defaultAbortNotifier 向房间全部参与者私聊入队 Outbox「游戏结束」通知
+// （B2：不只房主，docs 游戏流程设计.md §五 容灾）。
 type defaultAbortNotifier struct {
 	log    *slog.Logger
 	outbox *outbox.Scheduler
 }
 
 func (n defaultAbortNotifier) NotifyAbort(_ context.Context, r AbortedRoom) error {
-	msg := outbox.Message{
-		CorrelationID: "abort:" + string(r.Code),
-		RoomID:        r.Code,
-		ChatID:        outbox.ChatID(r.HostUserID),
-		Operation:     telegram.OpSendText,
-		Priority:      outbox.PriorityHigh,
+	players := r.Players
+	if len(players) == 0 {
+		players = []game.UserID{r.HostUserID}
 	}
-	if err := n.outbox.Enqueue(msg); err != nil {
-		return fmt.Errorf("app: enqueue abort notification: %w", err)
+	for _, user := range players {
+		msg := outbox.Message{
+			CorrelationID: "abort:" + string(r.Code),
+			RoomID:        r.Code,
+			ChatID:        outbox.ChatID(user),
+			Operation:     telegram.OpSendText,
+			Priority:      outbox.PriorityHigh,
+		}
+		if err := n.outbox.Enqueue(msg); err != nil {
+			return fmt.Errorf("app: enqueue abort notification to %d: %w", user, err)
+		}
 	}
-	n.log.Info("app: abort notification enqueued", "room", string(r.Code), "chat", int64(msg.ChatID))
+	n.log.Info("app: abort notifications enqueued", "room", string(r.Code), "players", len(players))
 	return nil
 }
 
@@ -332,12 +344,13 @@ func Build(ctx context.Context, cfg *config.Config, opts ...Option) (*App, error
 
 	scanner := o.AbortScanner
 	if scanner == nil {
-		scanner = defaultAbortScanner{repo: storage.NewRoomRepository(db)}
+		scanner = defaultAbortScanner{db: db}
 	}
 	notifier := o.AbortNotifier
 	if notifier == nil {
 		notifier = defaultAbortNotifier{log: log, outbox: scheduler}
 	}
+	abortRepo := storage.NewRecoveryRepository(db)
 
 	a := &App{
 		cfg:       cfg,
@@ -351,6 +364,7 @@ func Build(ctx context.Context, cfg *config.Config, opts ...Option) (*App, error
 		metrics:   observability.NewMetrics(),
 		scanner:   scanner,
 		notifier:  notifier,
+		abortRepo: abortRepo,
 		handler:   handler,
 		action:    actionHandler,
 		text:      o.TextHandler,

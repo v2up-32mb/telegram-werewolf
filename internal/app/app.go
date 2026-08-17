@@ -16,6 +16,7 @@ import (
 	"github.com/v2up-32mb/telegram-werewolf/internal/observability"
 	"github.com/v2up-32mb/telegram-werewolf/internal/outbox"
 	"github.com/v2up-32mb/telegram-werewolf/internal/room"
+	"github.com/v2up-32mb/telegram-werewolf/internal/storage"
 	"github.com/v2up-32mb/telegram-werewolf/internal/telegram"
 )
 
@@ -24,8 +25,11 @@ import (
 type AbortedRoom struct {
 	// Code 是遗留房间码。
 	Code game.RoomID
-	// HostUserID 是房主用户 ID（可联系的参与者之一；完整玩家名单查询属后续任务）。
+	// HostUserID 是房主用户 ID。
 	HostUserID game.UserID
+	// Players 是房间全部参与者（通知全体，B2；docs 游戏流程设计.md §五 容灾
+	// 「仍在房间内的玩家发送游戏结束通知」）。
+	Players []game.UserID
 	// Phase 是遗留房间最后阶段。
 	Phase string
 }
@@ -81,6 +85,7 @@ type App struct {
 	metrics   *observability.Metrics
 	scanner   AbortScanner
 	notifier  AbortNotifier
+	abortRepo *storage.RecoveryRepository
 	handler   CommandHandler
 	text      TextHandler
 	action    CallbackActionHandler
@@ -237,8 +242,10 @@ func (a *App) dispatchUpdate(ctx context.Context, u telegram.Update) error {
 	})
 }
 
-// scanLeftoverAborts 在启动时扫描遗留 active 房间并逐一通知
-// （docs/技术选型.md §10；通知失败只记日志，不阻断启动）。
+// scanLeftoverAborts 在启动时扫描遗留 active 房间：逐一通知全部参与者，
+// 并事务化清场为「服务重启中止」（MarkInterrupted 写 games.aborted=1 并清
+// rooms/room_players，docs/技术选型.md §8.3）。通知/清场失败只记日志，不
+// 阻断启动（错误留待下次重启重试）。
 func (a *App) scanLeftoverAborts(ctx context.Context) error {
 	leftover, err := a.scanner.ListLeftover(ctx)
 	if err != nil {
@@ -249,7 +256,15 @@ func (a *App) scanLeftoverAborts(ctx context.Context) error {
 			a.log.Error("app: abort notify failed", "room", string(r.Code), "error", err)
 			continue
 		}
-		a.log.Info("app: notified leftover room abort", "room", string(r.Code), "host", int64(r.HostUserID))
+		a.log.Info("app: notified leftover room abort", "room", string(r.Code), "players", len(r.Players))
+		if a.abortRepo == nil {
+			continue // 手搭 App（测试）未装配 RecoveryRepository：跳过清场
+		}
+		if err := a.abortRepo.MarkInterrupted(ctx, r.Code); err != nil {
+			a.log.Error("app: abort mark interrupted failed", "room", string(r.Code), "error", err)
+			continue
+		}
+		a.log.Info("app: marked leftover room interrupted", "room", string(r.Code))
 	}
 	return nil
 }

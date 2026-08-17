@@ -1230,7 +1230,7 @@ func (d *p1Driver) assertRestartAbort(t *testing.T, roomID game.RoomID, host gam
 	if _, err := d.w.db.ExecContext(d.ctx, `UPDATE rooms SET phase = ? WHERE room_code = ?`, d.st.Phase.String(), string(roomID)); err != nil {
 		t.Fatalf("persist final phase: %v", err)
 	}
-	scanner := defaultAbortScanner{repo: d.w.repo}
+	scanner := defaultAbortScanner{db: d.w.db}
 	leftover, err := scanner.ListLeftover(d.ctx)
 	if err != nil {
 		t.Fatalf("list leftover: %v", err)

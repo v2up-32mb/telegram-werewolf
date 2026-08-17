@@ -1146,7 +1146,7 @@ func (d *mvpDriver) driveAbort(step scenarioStep) error {
 	}
 
 	// 通知房主（真实 AbortNotifier 入队 outbox；须在清场前扫描遗留房）。
-	scanner := defaultAbortScanner{repo: d.w.repo}
+	scanner := defaultAbortScanner{db: d.w.db}
 	leftover, err := scanner.ListLeftover(d.ctx)
 	if err != nil {
 		return fmt.Errorf("list leftover: %w", err)
