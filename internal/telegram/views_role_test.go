@@ -66,8 +66,9 @@ func TestRoleCardViewCaptionAndMedia(t *testing.T) {
 			if !strings.Contains(v.Caption, tc.display) {
 				t.Errorf("Caption = %q, want 包含角色中文名 %q", v.Caption, tc.display)
 			}
-			if !strings.HasPrefix(v.Caption, "你抽到了") || !strings.HasSuffix(v.Caption, "请确认你的身份。") {
-				t.Errorf("Caption = %q, want role_card.caption 模板渲染结果", v.Caption)
+			// Caption 按 docs §6.1 至少含阵营与胜利条件。
+			if !strings.Contains(v.Caption, "阵营：") || !strings.Contains(v.Caption, "胜利条件：") {
+				t.Errorf("Caption = %q, want 含阵营与胜利条件（docs 阶段消息设计.md §6.1）", v.Caption)
 			}
 			if utf8.RuneCountInString(v.Caption) > telegramCaptionMaxChars {
 				t.Errorf("Caption 长度 = %d, 超过 1024", utf8.RuneCountInString(v.Caption))

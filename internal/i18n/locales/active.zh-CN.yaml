@@ -58,8 +58,18 @@ mark.role.witch: "💊 女巫"
 # 按钮短标记：座位号 + Emoji（按钮为纯文本，Emoji 紧贴座位号）
 button.seat: "{{.Seat}}号{{.Mark}}"
 
-# 身份卡
-role_card.caption: "你抽到了 {{.RoleName}}！请确认你的身份。"
+# 身份卡（docs 阶段消息设计.md §6.1：Caption 至少含角色名/阵营/胜利条件；
+# 技能/限制/超时默认/私有信息/本局动态配置为卡片扩展项，见角色卡片.md）
+role_card.caption: |
+  🎴 你抽到了：{{.RoleName}}
+  阵营：{{.CampName}}
+  胜利条件：{{.WinCondition}}
+
+  请确认你已经查看并记住自己的身份。
+role_card.camp_good: "好人阵营"
+role_card.camp_wolf: "狼人阵营"
+role_card.win_good: "找出并投出所有狼人"
+role_card.win_wolf: "杀死所有好人（屠城默认）"
 
 # 发牌确认（docs/阶段消息设计.md §6.2）
 deal.confirm_prompt: |

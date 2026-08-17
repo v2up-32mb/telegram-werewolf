@@ -101,6 +101,9 @@ func (d *roomDirector) onApplied(roomID game.RoomID, st game.State, fx []game.Ef
 			return
 		}
 		dr.actor.Adopt(next, nfx)
+		// S3：pump 内阶段切换同样即时失效旧阶段 token（不只是命令驱动入口），
+		// 保证「阶段切换时旧 Token 整体失效」无延迟窗口。
+		d.syncPhaseTokens(roomID, next)
 		d.w.reg.updateState(roomID, next)
 		if err := d.w.fanOut(roomID, next, nfx); err != nil {
 			d.w.log.Error("app: director pump fanout", "room", string(roomID), "error", err)
@@ -117,7 +120,7 @@ func (d *roomDirector) syncPhaseTokens(roomID game.RoomID, st game.State) {
 	if dr.prevPhase == st.Phase {
 		return
 	}
-	if dr.prevPhase != game.PhaseUnknown && dr.prevPhase != game.PhaseLobby {
+	if dr.prevPhase != game.PhaseUnknown {
 		d.w.tokens.InvalidatePhase(dr.prevPhase)
 	}
 	dr.prevPhase = st.Phase

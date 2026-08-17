@@ -42,9 +42,13 @@ const roleCardCaptionMessageKey = "role_card.caption"
 
 // NewRoleCardView 构造身份卡视图：
 //  1. Provider 取图（缺图返回 ErrRoleImageNotAvailable，不 panic）；
-//  2. 经 i18n 渲染角色中文名（mark.role.*）与 role_card.caption；
+//  2. 经 i18n 渲染角色中文名（mark.role.*）、阵营与胜利条件
+//     （role_card.camp_*/win_*，docs 阶段消息设计.md §6.1）到 Caption；
 //  3. Caption 超过 Telegram 1024 上限（§6.1）拒绝；
 //  4. 渲染/取图失败均显式报错，返回零值视图。
+//
+// 已知卡片扩展项（技能/限制/超时默认/私有信息/本局动态配置，docs 角色卡片.md）
+// 尚未进入 Caption，属后续文案扩展任务（见测试验收清单「生产接线状态」备注）。
 func NewRoleCardView(r *i18n.Renderer, p RoleImageProvider, role game.Role, seat game.Seat) (RoleCardView, error) {
 	if p == nil {
 		return RoleCardView{}, ErrRoleImageNotAvailable
@@ -57,22 +61,43 @@ func NewRoleCardView(r *i18n.Renderer, p RoleImageProvider, role game.Role, seat
 	if err != nil {
 		return RoleCardView{}, ErrRoleImageNotAvailable
 	}
-	displayKey, err := roleDisplayNameKey(role)
+	caption, err := roleCardCaption(r, role)
 	if err != nil {
 		return RoleCardView{}, err
-	}
-	roleName, err := r.Render(displayKey, nil)
-	if err != nil {
-		return RoleCardView{}, fmt.Errorf("telegram: render role name: %w", err)
-	}
-	caption, err := r.Render(roleCardCaptionMessageKey, map[string]any{"RoleName": roleName})
-	if err != nil {
-		return RoleCardView{}, fmt.Errorf("telegram: render role card caption: %w", err)
 	}
 	if err := ValidateRoleCardCaption(caption); err != nil {
 		return RoleCardView{}, err
 	}
 	return RoleCardView{Seat: seat, Image: img, MIME: mime, Caption: caption}, nil
+}
+
+// roleCardCaption 渲染身份卡 Caption（角色名 + 阵营 + 胜利条件）。
+func roleCardCaption(r *i18n.Renderer, role game.Role) (string, error) {
+	displayKey, err := roleDisplayNameKey(role)
+	if err != nil {
+		return "", err
+	}
+	roleName, err := r.Render(displayKey, nil)
+	if err != nil {
+		return "", fmt.Errorf("telegram: render role name: %w", err)
+	}
+	campKey, winKey := "role_card.camp_good", "role_card.win_good"
+	if role == game.RoleWolf {
+		campKey, winKey = "role_card.camp_wolf", "role_card.win_wolf"
+	}
+	campName, err := r.Render(campKey, nil)
+	if err != nil {
+		return "", fmt.Errorf("telegram: render role camp: %w", err)
+	}
+	winCondition, err := r.Render(winKey, nil)
+	if err != nil {
+		return "", fmt.Errorf("telegram: render role win condition: %w", err)
+	}
+	return r.Render(roleCardCaptionMessageKey, map[string]any{
+		"RoleName":     roleName,
+		"CampName":     campName,
+		"WinCondition": winCondition,
+	})
 }
 
 // roleImageName 映射领域角色到角色卡图片文件名主干（assets 约定）。

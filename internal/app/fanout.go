@@ -90,14 +90,19 @@ func (w *Wiring) appendMain(roomID game.RoomID, chat int64, period, text string)
 			telegram.Params{ChatID: chat, Text: text}, outbox.PriorityNormal, "")
 	}
 	if created {
+		w.mainMu.Lock()
 		w.mainBody[key] = text // 新页（首页或续页）从本条开始，不复制旧页
+		w.mainMu.Unlock()
 		return w.enqueue("fx:"+string(roomID), roomID, chat, telegram.OpSendText,
 			telegram.Params{ChatID: chat, Text: text, Period: period}, outbox.PriorityNormal, "")
 	}
+	w.mainMu.Lock()
 	w.mainBody[key] += "\n\n" + text
+	body := w.mainBody[key]
+	w.mainMu.Unlock()
 	_ = ref
 	return w.enqueue("fx:"+string(roomID), roomID, chat, telegram.OpEditMessage,
-		telegram.Params{ChatID: chat, Text: w.mainBody[key], Period: period}, outbox.PriorityNormal, "")
+		telegram.Params{ChatID: chat, Text: body, Period: period}, outbox.PriorityNormal, "")
 }
 
 // currentPeriod 返回导演当前时间段（"night.N"/"day.D"）；大厅/无期间返回空。

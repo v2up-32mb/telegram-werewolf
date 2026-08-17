@@ -102,15 +102,21 @@ func TestRenderSeatButtonShortMark(t *testing.T) {
 	}
 }
 
-// TestRenderRoleCardCaption 验证身份卡 Caption 中玩家数据被转义。
+// TestRenderRoleCardCaption 验证身份卡 Caption 中玩家数据被转义，且含阵营/
+// 胜利条件（docs 阶段消息设计.md §6.1）。
 func TestRenderRoleCardCaption(t *testing.T) {
 	r := newTestRenderer(t)
-	got, err := r.Render("role_card.caption", map[string]any{"RoleName": "预言_家"})
+	got, err := r.Render("role_card.caption", map[string]any{
+		"RoleName": "预言_家", "CampName": "好人阵营", "WinCondition": "找出并投出所有狼人",
+	})
 	if err != nil {
 		t.Fatalf("Render() error = %v, want nil", err)
 	}
-	if got != "你抽到了 预言\\_家！请确认你的身份。" {
-		t.Errorf("身份卡 Caption = %q", got)
+	if !strings.Contains(got, "预言\\_家") {
+		t.Errorf("身份卡 Caption 未转义玩家数据 = %q", got)
+	}
+	if !strings.Contains(got, "阵营：好人阵营") || !strings.Contains(got, "胜利条件：找出并投出所有狼人") {
+		t.Errorf("身份卡 Caption 缺阵营/胜利条件 = %q", got)
 	}
 }
 

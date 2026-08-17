@@ -80,6 +80,9 @@ type Wiring struct {
 	viewer    *telegram.Viewer
 	mainBody  map[mainPeriodKey]string
 	mainMsgID map[mainPeriodKey]int64
+	// mainMu 保护 mainBody/mainMsgID：actor goroutine（appendMain 写正文）与
+	// outbox worker（productionSendMain 读写消息 ID）并发访问，Go map 非安全。
+	mainMu sync.Mutex
 
 	// 身份卡媒体（Item 2）：botOnce/botID 惰性缓存 GetMe 结果（缓存键依据）。
 	botOnce sync.Once
@@ -245,11 +248,15 @@ func (w *Wiring) productionSendMain(ctx context.Context, client telegram.Client,
 		if err != nil {
 			return classifyTelegramError(msg, err)
 		}
+		w.mainMu.Lock()
 		w.mainMsgID[key] = int64(sent.MessageID)
+		w.mainMu.Unlock()
 		w.log.Info("app: main msg created", "chat", params.ChatID, "period", params.Period, "id", sent.MessageID)
 		return nil
 	case telegram.OpEditMessage:
+		w.mainMu.Lock()
 		id := w.mainMsgID[key]
+		w.mainMu.Unlock()
 		if id == 0 {
 			// 防御：主消息尚未创建（不应发生）：退回 send，保证内容不丢。
 			sent, err := client.SendMessage(ctx, telegram.SendMessageParams{
@@ -258,7 +265,9 @@ func (w *Wiring) productionSendMain(ctx context.Context, client telegram.Client,
 			if err != nil {
 				return classifyTelegramError(msg, err)
 			}
+			w.mainMu.Lock()
 			w.mainMsgID[key] = int64(sent.MessageID)
+			w.mainMu.Unlock()
 			return nil
 		}
 		if _, err := client.EditMessageText(ctx, telegram.EditMessageParams{
