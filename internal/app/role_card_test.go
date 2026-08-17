@@ -30,7 +30,9 @@ func (c *roleCardClient) SendMessage(context.Context, telegram.SendMessageParams
 func (c *roleCardClient) EditMessageText(context.Context, telegram.EditMessageParams) (*telegram.SentMessage, error) {
 	return &telegram.SentMessage{MessageID: 11}, nil
 }
-func (c *roleCardClient) DeleteMessage(context.Context, telegram.DeleteMessageParams) error { return nil }
+func (c *roleCardClient) DeleteMessage(context.Context, telegram.DeleteMessageParams) error {
+	return nil
+}
 func (c *roleCardClient) SendPhoto(_ context.Context, p telegram.SendPhotoParams) (*telegram.SentMessage, error) {
 	c.sends++
 	c.lastFileID = p.FileID
@@ -42,7 +44,9 @@ func (c *roleCardClient) UploadPhoto(_ context.Context, p telegram.UploadPhotoPa
 	c.lastCaption = p.Caption
 	return &telegram.SentMessage{MessageID: 13, PhotoFileID: "file-abc-upload"}, nil
 }
-func (c *roleCardClient) AnswerCallbackQuery(context.Context, telegram.AnswerCallbackParams) error { return nil }
+func (c *roleCardClient) AnswerCallbackQuery(context.Context, telegram.AnswerCallbackParams) error {
+	return nil
+}
 
 // TestRoleCardUploadThenCacheHit 验证：首次 send_role_card 上传并缓存
 // file_id，后续命中缓存直发（不重复上传）。

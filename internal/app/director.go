@@ -37,6 +37,7 @@ type dirRoom struct {
 	actor        *room.Actor
 	night        int
 	lastPeriod   string // 当前时间段主消息标识（"night.N"/"day.D"，Item 1）
+	prevPhase    game.Phase
 	wolfStarted  bool
 	witchStarted bool
 	seerStarted  bool
@@ -77,6 +78,9 @@ func (d *roomDirector) bind(roomID game.RoomID, actor *room.Actor) {
 
 // onApplied 是 Actor 的效果/状态钩子（B1-a）：同步状态 + 扇出效果 + 阶段推进。
 func (d *roomDirector) onApplied(roomID game.RoomID, st game.State, fx []game.Effect) {
+	// S3：阶段切换时使旧阶段 token 整体失效（docs 技术选型.md §7.3：阶段切换
+	// 时旧 Token 整体失效），限制令牌表容量占用并杜绝旧阶段按钮生效。
+	d.syncPhaseTokens(roomID, st)
 	// 同步当前状态（reducer 过渡后的权威快照，供 /role、token 版本与
 	// 发言拦截读取；B1-d 修复：普通过渡也需同步，不能只靠 pump 采纳）。
 	d.w.reg.updateState(roomID, st)
@@ -104,6 +108,19 @@ func (d *roomDirector) onApplied(roomID game.RoomID, st game.State, fx []game.Ef
 		}
 		st = next
 	}
+}
+
+// syncPhaseTokens 在阶段变化时调用 CallbackManager.InvalidatePhase 使旧阶段
+// token 整体失效（S3；docs/技术选型.md §7.3「阶段切换时旧 Token 整体失效」）。
+func (d *roomDirector) syncPhaseTokens(roomID game.RoomID, st game.State) {
+	dr := d.room(roomID)
+	if dr.prevPhase == st.Phase {
+		return
+	}
+	if dr.prevPhase != game.PhaseUnknown && dr.prevPhase != game.PhaseLobby {
+		d.w.tokens.InvalidatePhase(dr.prevPhase)
+	}
+	dr.prevPhase = st.Phase
 }
 
 // pump 推进一个阶段窗口；adv=true 表示状态已变化（调用方需 Adopt）。
