@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -46,6 +47,9 @@ type Me struct {
 // SentMessage 是发送/编辑成功后的消息 DTO。
 type SentMessage struct {
 	MessageID int
+	// PhotoFileID 是上传图片后返回的新 file_id（仅 UploadPhoto 填充，
+	// 供 media_cache 回写）。
+	PhotoFileID string
 }
 
 // SendMessageParams 是 sendMessage 参数。
@@ -79,6 +83,15 @@ type SendPhotoParams struct {
 	ParseMode string
 }
 
+// UploadPhotoParams 是「上传新图片并作为同一条 sendPhoto 发送」的参数。
+type UploadPhotoParams struct {
+	ChatID    int64
+	Image     []byte
+	MimeType  string
+	Caption   string
+	ParseMode string
+}
+
 // AnswerCallbackParams 是 answerCallbackQuery 参数（顶部通知 show_alert=false）。
 type AnswerCallbackParams struct {
 	CallbackQueryID string
@@ -95,6 +108,9 @@ type Client interface {
 	EditMessageText(ctx context.Context, p EditMessageParams) (*SentMessage, error)
 	DeleteMessage(ctx context.Context, p DeleteMessageParams) error
 	SendPhoto(ctx context.Context, p SendPhotoParams) (*SentMessage, error)
+	// UploadPhoto 上传新图片并作为同一条 sendPhoto 发送（身份卡首次发送，
+	// 返回消息含新 file_id；Item 2 / docs 技术选型.md §10）。
+	UploadPhoto(ctx context.Context, p UploadPhotoParams) (*SentMessage, error)
 	AnswerCallbackQuery(ctx context.Context, p AnswerCallbackParams) error
 }
 
@@ -212,6 +228,37 @@ func (c *clientImpl) SendPhoto(ctx context.Context, p SendPhotoParams) (*SentMes
 		return nil, wrapTelegramError(err)
 	}
 	return &SentMessage{MessageID: msg.ID}, nil
+}
+
+// UploadPhoto 上传新图片（multipart）并作为同一条 sendPhoto 发送，
+// 返回的消息携带 photo 尺寸数组（新 file_id 供缓存回写，docs/技术选型.md
+// §10 首次发送上传并缓存）。
+func (c *clientImpl) UploadPhoto(ctx context.Context, p UploadPhotoParams) (*SentMessage, error) {
+	parseMode := p.ParseMode
+	if parseMode == "" {
+		parseMode = markdownV2
+	}
+	msg, err := c.b.SendPhoto(ctx, &bot.SendPhotoParams{
+		ChatID:    p.ChatID,
+		Photo:     &models.InputFileUpload{Filename: "role-card.jpg", Data: bytes.NewReader(p.Image)},
+		Caption:   p.Caption,
+		ParseMode: models.ParseMode(parseMode),
+	})
+	if err != nil {
+		return nil, wrapTelegramError(err)
+	}
+	// 提取最大尺寸 photo 的 file_id（缓存回写用）。
+	out := &SentMessage{MessageID: msg.ID}
+	if len(msg.Photo) > 0 {
+		largest := msg.Photo[0]
+		for _, ps := range msg.Photo[1:] {
+			if ps.FileSize > largest.FileSize {
+				largest = ps
+			}
+		}
+		out.PhotoFileID = largest.FileID
+	}
+	return out, nil
 }
 
 func (c *clientImpl) AnswerCallbackQuery(ctx context.Context, p AnswerCallbackParams) error {

@@ -42,6 +42,9 @@ func (c *fakeIDClient) DeleteMessage(context.Context, telegram.DeleteMessagePara
 func (c *fakeIDClient) SendPhoto(context.Context, telegram.SendPhotoParams) (*telegram.SentMessage, error) {
 	return &telegram.SentMessage{MessageID: 1}, nil
 }
+func (c *fakeIDClient) UploadPhoto(context.Context, telegram.UploadPhotoParams) (*telegram.SentMessage, error) {
+	return &telegram.SentMessage{MessageID: 1}, nil
+}
 func (c *fakeIDClient) AnswerCallbackQuery(context.Context, telegram.AnswerCallbackParams) error {
 	return nil
 }

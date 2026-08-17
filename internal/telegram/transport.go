@@ -16,6 +16,9 @@ const (
 	OpDeleteMessage = "delete_message"
 	// OpSendPhoto 对应 sendPhoto。
 	OpSendPhoto = "send_photo"
+	// OpSendRoleCard 对应身份卡发送（Item 2：sendPhoto 图片 + Caption，
+	// 首次上传并缓存 file_id，后续复用；见 app.media 接线）。
+	OpSendRoleCard = "send_role_card"
 	// OpAnswerCallback 对应 answerCallbackQuery。
 	OpAnswerCallback = "answer_callback_query"
 )
@@ -50,6 +53,10 @@ type Params struct {
 	// Period 标识主消息时间段（如 "night.1"；非空=主消息滚动编辑，接线层
 	// productionSend 负责同一 (chat, period) 的 send→edit 消息 ID 复用与分页）。
 	Period string
+	// RoleCardRole / RoleCardSeat 供 OpSendRoleCard（Item 2：身份卡图片发送，
+	// 角色名主干如 "werewolf"，座位号）。
+	RoleCardRole string
+	RoleCardSeat int
 	// ParseMode 为空时文本类消息默认 MarkdownV2。
 	ParseMode string
 }

@@ -33,6 +33,9 @@ func (c *classifyClient) DeleteMessage(context.Context, telegram.DeleteMessagePa
 func (c *classifyClient) SendPhoto(context.Context, telegram.SendPhotoParams) (*telegram.SentMessage, error) {
 	return nil, nil
 }
+func (c *classifyClient) UploadPhoto(context.Context, telegram.UploadPhotoParams) (*telegram.SentMessage, error) {
+	return nil, c.sendErr
+}
 func (c *classifyClient) AnswerCallbackQuery(context.Context, telegram.AnswerCallbackParams) error {
 	return nil
 }

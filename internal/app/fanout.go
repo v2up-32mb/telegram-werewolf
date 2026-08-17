@@ -121,6 +121,21 @@ func (w *Wiring) fanOutMessage(roomID game.RoomID, st game.State, e game.Message
 	if err != nil {
 		return err
 	}
+	// 身份卡（Item 2）：sendPhoto 图片 + Caption，每接收者一条 OpSendRoleCard。
+	if e.Key == game.DealRoleCardMessageKey {
+		role := fmt.Sprint(e.Params["role"])
+		seat := 0
+		if s, ok := e.Params["seat"].(game.Seat); ok {
+			seat = int(s)
+		}
+		for _, chat := range chats {
+			if err := w.enqueue("fx:"+string(roomID), roomID, chat, telegram.OpSendRoleCard,
+				telegram.Params{ChatID: chat, RoleCardRole: role, RoleCardSeat: seat}, outbox.PriorityHigh, ""); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	// 主消息（时间段滚动编辑，Item 1）：每条独立发送/追加到该时间段主消息页。
 	if isMainMessageKey(e.Key) {
 		period := w.director.currentPeriod(st)

@@ -80,6 +80,11 @@ type Wiring struct {
 	viewer    *telegram.Viewer
 	mainBody  map[mainPeriodKey]string
 	mainMsgID map[mainPeriodKey]int64
+
+	// 身份卡媒体（Item 2）：botOnce/botID 惰性缓存 GetMe 结果（缓存键依据）。
+	botOnce sync.Once
+	botID   int64
+	botErr  error
 }
 
 // mainPeriodKey 标识一个 Chat 的某个时间段主消息。
@@ -216,6 +221,9 @@ func (w *Wiring) productionSend(ctx context.Context, msg outbox.Message) error {
 	}
 	if params.Period != "" {
 		return w.productionSendMain(ctx, client, msg, params)
+	}
+	if msg.Operation == telegram.OpSendRoleCard {
+		return w.sendRoleCard(ctx, params.ChatID, params.RoleCardRole, params.RoleCardSeat)
 	}
 	tr := telegram.NewTransport(client)
 	if err := tr.Send(ctx, msg.Operation, params); err != nil {
