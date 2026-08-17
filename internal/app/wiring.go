@@ -59,6 +59,9 @@ type Wiring struct {
 	handler  *callbackHandler
 	text     *textHandler
 	sendFn   outbox.SendFunc
+
+	// settings 是房间设置服务（建房后大厅回调 SettingsCommand 使用）。
+	settings game.SettingsService
 }
 
 // NewWiring 创建生产接线（此时不触网；Client 创建延后到首次发送时按需）。
@@ -128,7 +131,8 @@ func (w *Wiring) Attach(db *sql.DB, outbox *outbox.Scheduler) error {
 		return fmt.Errorf("app: wiring commands handler: %w", err)
 	}
 	w.commands = cmdHandler
-	w.handler = &callbackHandler{w: w, settings: settingsSvc}
+	w.handler = &callbackHandler{w: w}
+	w.settings = settingsSvc
 	w.text = &textHandler{w: w, commands: cmdHandler, reg: w.reg}
 	w.sendFn = w.productionSend
 	return nil
@@ -140,6 +144,11 @@ func (w *Wiring) OutboxSender() outbox.SendFunc { return w.sendFn }
 
 // CommandHandler 返回回调/房间命令处理器（Router 派发的领域命令）。
 func (w *Wiring) CommandHandler() CommandHandler { return w.handler }
+
+// ActionHandler 返回回调动作处理器（B1-b）：校验后的 callback 动作 → 命令
+// 或导演本地信号（end_speech 等）。App 对回调更新经 Router.DispatchAction
+// 分派到此。
+func (w *Wiring) ActionHandler() CallbackActionHandler { return &callbackActionHandler{w: w} }
 
 // TextHandler 返回玩家文本命令处理器（/start /newgame /join /role /score /leave /help /rank）。
 func (w *Wiring) TextHandler() TextHandler { return w.text }
@@ -839,76 +848,111 @@ func (a roomSettingsAdapter) LoadPasswordHash(ctx context.Context, roomID game.R
 }
 
 // ---------------------------------------------------------------------------
-// 回调/房间命令处理器（Router 派发的领域命令）
+// 回调/房间命令处理器（Router 派发的领域命令 / 回调动作）
 // ---------------------------------------------------------------------------
 
 type callbackHandler struct {
-	w        *Wiring
-	settings game.SettingsService
+	w *Wiring
 }
 
+// Handle 是 CommandHandler 适配器：回调动作经 actionHandler 映射为命令后
+// 复用同一处理路径。
 func (h *callbackHandler) Handle(ctx context.Context, cmd game.Command) error {
+	return h.w.handleCommand(ctx, cmd)
+}
+
+// callbackActionHandler 处理校验后的回调动作（B1-b）：reducer 动作 →
+// 命令 → handleCommand；导演本地信号（end_speech 等）先 ACK 待 B1-d 接线。
+type callbackActionHandler struct {
+	w *Wiring
+}
+
+func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.CallbackAction) error {
+	payload := &telegram.TokenPayload{
+		Owner:         act.Owner,
+		Action:        act.Action,
+		Target:        act.Target,
+		ExpectedPhase: act.ExpectedPhase,
+		PhaseVersion:  act.PhaseVersion,
+	}
+	meta := game.CommandMeta{
+		ID:            fmt.Sprintf("u%d", act.UpdateID),
+		Actor:         act.Owner,
+		ExpectedPhase: act.ExpectedPhase,
+		PhaseVersion:  act.PhaseVersion,
+		ReceivedAt:    act.ReceivedAt,
+	}
+	cmd, ok := telegram.CallbackCommand(payload, meta)
+	if !ok {
+		h.w.log.Debug("app: callback action is director-local (await B1-d)", "action", act.Action)
+		return nil // 明确 ACK，不重投
+	}
+	return h.w.handleCommand(ctx, cmd)
+}
+
+// handleCommand 处理一条领域命令（建房后大厅回调 / 局内 Actor 分派）。
+func (w *Wiring) handleCommand(ctx context.Context, cmd game.Command) error {
 	meta, ok := commandMetaOf(cmd)
 	if !ok {
-		h.w.log.Warn("app: callback command without meta", "command", fmt.Sprintf("%T", cmd))
+		w.log.Warn("app: callback command without meta", "command", fmt.Sprintf("%T", cmd))
 		return nil
 	}
-	roomID, ok := h.w.reg.roomOf(meta.Actor)
+	roomID, ok := w.reg.roomOf(meta.Actor)
 	if !ok {
 		// 无房回调：回复无房提示后 ACK（不重投）。
-		_ = h.w.sendText(ctx, "cb", "", int64(meta.Actor), "commands.no_room", nil)
+		_ = w.sendText(ctx, "cb", "", int64(meta.Actor), "commands.no_room", nil)
 		return nil
 	}
-	lr, ok := h.w.reg.get(roomID)
+	lr, ok := w.reg.get(roomID)
 	if !ok {
 		return nil
 	}
 
 	// 开局前（大厅）回调：建房后按钮（设置/解散/开始）。单账号冒烟范围
 	// 内面板按钮尚未接线 inline keyboard，此路径主要保证 StartGame 可
-	// 引导房间 Actor。
+	// 引导房间 Actor（B1-d 起按钮经 inline keyboard + CallbackAction 到达）。
 	if lr.actor == nil {
 		switch c := cmd.(type) {
 		case game.SettingsCommand:
-			_, fx, err := h.settings.Apply(ctx, c)
+			_, fx, err := w.settings.Apply(ctx, c)
 			if err != nil {
-				h.w.log.Warn("app: settings rejected", "room", string(roomID), "error", err)
+				w.log.Warn("app: settings rejected", "room", string(roomID), "error", err)
 				return nil
 			}
-			return h.w.applyEffects(ctx, "cb:"+string(roomID), roomID, meta.Actor, fx)
+			return w.applyEffects(ctx, "cb:"+string(roomID), roomID, meta.Actor, fx)
 		case game.StartGameCommand:
 			lr.actor = room.NewActor(lr.st, game.NewReducer(), room.NewRealClock(), room.Options{})
 			res, err := lr.actor.Dispatch(ctx, c)
 			if err != nil {
-				h.w.log.Warn("app: start game dispatch", "room", string(roomID), "error", err)
+				w.log.Warn("app: start game dispatch", "room", string(roomID), "error", err)
 				return nil
 			}
 			if res.Err != nil {
-				h.w.log.Warn("app: start game rejected", "room", string(roomID), "error", res.Err)
+				w.log.Warn("app: start game rejected", "room", string(roomID), "error", res.Err)
 				return nil // 领域拒绝（人数不足等）：ACK，不重投
 			}
-			h.w.reg.updateState(roomID, res.State)
-			return h.w.applyEffects(ctx, "cb:"+string(roomID), roomID, meta.Actor, res.Effects)
+			w.reg.updateState(roomID, res.State)
+			return w.applyEffects(ctx, "cb:"+string(roomID), roomID, meta.Actor, res.Effects)
 		case game.LeaveGameCommand:
 			// 大厅退出走 /leave 文本路径；回调版兜底 ACK。
 			return nil
 		default:
-			h.w.log.Debug("app: lobby callback ignored", "room", string(roomID), "command", fmt.Sprintf("%T", cmd))
+			w.log.Debug("app: lobby callback ignored", "room", string(roomID), "command", fmt.Sprintf("%T", cmd))
 			return nil
 		}
 	}
 
 	res, err := lr.actor.Dispatch(ctx, cmd)
 	if err != nil {
-		h.w.log.Warn("app: room dispatch", "room", string(roomID), "error", err)
+		w.log.Warn("app: room dispatch", "room", string(roomID), "error", err)
 		return nil // 领域/基础设施拒绝：ACK
 	}
 	if res.Err != nil {
-		h.w.log.Warn("app: command rejected", "room", string(roomID), "command", fmt.Sprintf("%T", cmd), "error", res.Err)
+		w.log.Warn("app: command rejected", "room", string(roomID), "command", fmt.Sprintf("%T", cmd), "error", res.Err)
 		return nil
 	}
-	h.w.reg.updateState(roomID, res.State)
-	return h.w.applyEffects(ctx, "cb:"+string(roomID), roomID, meta.Actor, res.Effects)
+	w.reg.updateState(roomID, res.State)
+	return w.applyEffects(ctx, "cb:"+string(roomID), roomID, meta.Actor, res.Effects)
 }
 
 // commandMetaOf 提取全部命令的 Meta（Router 产出的命令均携带 Meta）。

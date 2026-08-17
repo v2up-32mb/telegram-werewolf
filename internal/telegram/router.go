@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/v2up-32mb/telegram-werewolf/internal/game"
 )
@@ -110,26 +111,108 @@ func textCommandMeta(u Update) game.CommandMeta {
 
 // callbackCommand 按 token action 构造领域命令。
 func callbackCommand(p *TokenPayload, meta game.CommandMeta) (game.Command, bool) {
+	return CallbackCommand(p, meta)
+}
+
+// CallbackAction 是回调 token 校验后的领域动作（B1-b）：供接线层把非
+// reducer 动作（end_speech 等导演本地信号）分流给导演，reducer 动作再经
+// CallbackCommand 转为领域命令。
+type CallbackAction struct {
+	UpdateID      int64
+	Owner         game.UserID
+	Action        string
+	Target        string
+	ExpectedPhase game.Phase
+	PhaseVersion  uint64
+	ReceivedAt    time.Time
+}
+
+// routeCallback 校验回调 token 并返回领域动作。
+func (r *Router) routeCallback(u Update) (CallbackAction, bool) {
+	payload, err := r.tokens.Validate(u.CallbackQuery.Data, game.UserID(u.CallbackQuery.UserID))
+	if err != nil {
+		return CallbackAction{}, false
+	}
+	return CallbackAction{
+		UpdateID:      u.UpdateID,
+		Owner:         payload.Owner,
+		Action:        payload.Action,
+		Target:        payload.Target,
+		ExpectedPhase: payload.ExpectedPhase,
+		PhaseVersion:  payload.PhaseVersion,
+		ReceivedAt:    u.ReceivedAt,
+	}, true
+}
+
+// DispatchAction 单 dispatcher 处理一个回调查询动作：保持 update_id 去重、
+// token 校验与 ACK cursor 语义；apply 收到的是动作而非命令，供导演分流
+// （docs/阶段消息设计.md §9 顶部通知始终应答；不可识别动作属明确拒绝，ACK）。
+func (r *Router) DispatchAction(ctx context.Context, u Update, apply func(context.Context, CallbackAction) error) error {
+	if !r.dedupe.Accept(u.UpdateID) {
+		return nil
+	}
+	act, ok := r.routeCallback(u)
+	if !ok {
+		return r.store.Save(ctx, u.UpdateID)
+	}
+	if err := apply(ctx, act); err != nil {
+		return err
+	}
+	return r.store.Save(ctx, u.UpdateID)
+}
+
+// CallbackCommand 把回调动作映射为领域命令（B1-b：覆盖引擎新命令集与
+// 治理/再来一局；旧的 wolf_kill/witch_use/speak 动作退役）。
+// 非 reducer 动作（end_speech 等导演本地信号）返回 ok=false。
+func CallbackCommand(p *TokenPayload, meta game.CommandMeta) (game.Command, bool) {
+	targetPtr := func() *game.Seat {
+		if p.Target == "" || p.Target == "abstain" {
+			return nil
+		}
+		s := parseSeat(p.Target)
+		return &s
+	}
 	switch p.Action {
 	case "confirm_role":
 		return game.ConfirmRoleCommand{Meta: meta}, true
 	case "start_game":
 		return game.StartGameCommand{Meta: meta}, true
 	case "vote":
-		if p.Target == "" || p.Target == "abstain" {
-			return game.VoteCommand{Meta: meta, Target: nil}, true
-		}
-		target := parseSeat(p.Target)
-		return game.VoteCommand{Meta: meta, Target: &target}, true
-	case "wolf_kill":
-		return game.WolfKillCommand{Meta: meta, Target: parseSeat(p.Target)}, true
+		return game.VoteCommand{Meta: meta, Target: targetPtr()}, true
+	case "vote_confirm":
+		return game.VoteConfirmCommand{Meta: meta}, true
+	case "wolf_vote":
+		return game.WolfVoteCommand{Meta: meta, Target: targetPtr()}, true
+	case "wolf_confirm":
+		return game.WolfConfirmCommand{Meta: meta}, true
+	case "witch_save":
+		return game.WitchSaveCommand{Meta: meta, Use: p.Target == "yes"}, true
+	case "witch_poison":
+		return game.WitchPoisonCommand{Meta: meta, Target: targetPtr()}, true
+	case "witch_confirm":
+		return game.WitchConfirmCommand{Meta: meta}, true
 	case "seer_check":
 		return game.SeerCheckCommand{Meta: meta, Target: parseSeat(p.Target)}, true
-	case "witch_use":
-		action, target := parseWitchUse(p.Target)
-		return game.WitchUseCommand{Meta: meta, Action: action, Target: target}, true
-	case "speak":
-		return game.SpeakCommand{Meta: meta, Text: p.Target}, true
+	case "seer_confirm":
+		return game.SeerConfirmCommand{Meta: meta}, true
+	case "explode":
+		return game.ExplodeCommand{Meta: meta}, true
+	case "leave_game":
+		return game.LeaveGameCommand{Meta: meta}, true
+	case "rematch":
+		return game.RematchCommand{Meta: meta}, true
+	case "last_words":
+		return game.LastWordsCommand{Meta: meta, Text: p.Target}, true
+	case "governance_dissolve":
+		return game.GovernanceDissolveCommand{Meta: meta}, true
+	case "governance_dissolve_vote":
+		return game.GovernanceDissolveVoteCommand{Meta: meta}, true
+	case "governance_kick":
+		return game.GovernanceKickCommand{Meta: meta, Target: parseSeat(p.Target)}, true
+	case "governance_kick_vote":
+		return game.GovernanceKickVoteCommand{Meta: meta}, true
+	case "host_dissolve":
+		return game.HostDissolveCommand{Meta: meta, Confirm: p.Target == "confirm"}, true
 	default:
 		return nil, false
 	}
@@ -147,20 +230,4 @@ func parseSeat(s string) game.Seat {
 		return 0
 	}
 	return game.Seat(n)
-}
-
-// parseWitchUse 把 "save:3" / "poison:3" 解析为用药动作与目标。
-func parseWitchUse(target string) (game.WitchAction, game.Seat) {
-	parts := strings.SplitN(target, ":", 2)
-	switch parts[0] {
-	case "save":
-		if len(parts) == 2 {
-			return game.WitchActionSave, parseSeat(parts[1])
-		}
-	case "poison":
-		if len(parts) == 2 {
-			return game.WitchActionPoison, parseSeat(parts[1])
-		}
-	}
-	return game.WitchActionUnknown, 0
 }

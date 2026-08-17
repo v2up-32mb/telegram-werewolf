@@ -233,3 +233,198 @@ func commandMetaOf(cmd game.Command) game.CommandMeta {
 }
 
 var errTestFailure = context.DeadlineExceeded
+
+// TestRouterNewCallbackCommandSet 验证 B1-b：回调 token 动作覆盖引擎新命令集
+// （WolfVote/WitchSave/WitchPoison/确认命令/治理/再来一局等），旧的
+// wolf_kill/witch_use/speak 命令退役。
+func TestRouterNewCallbackCommandSet(t *testing.T) {
+	r, _, tokens := newTestRouter(64)
+
+	issue := func(action, target string) string {
+		tok, err := tokens.Issue(TokenPayload{
+			Owner: 2001, Action: action, Target: target,
+			ExpectedPhase: game.PhaseNight, PhaseVersion: 3,
+		})
+		if err != nil {
+			t.Fatalf("Issue(%s): %v", action, err)
+		}
+		return tok
+	}
+
+	t.Run("狼人投票与确认", func(t *testing.T) {
+		cmd, ok := r.routeOne(cbUpdate(11, 2001, issue("wolf_vote", "3")))
+		if !ok {
+			t.Fatal("wolf_vote 未产生命令")
+		}
+		wv, ok := cmd.(game.WolfVoteCommand)
+		if !ok {
+			t.Fatalf("类型 = %T, want WolfVoteCommand", cmd)
+		}
+		if wv.Target == nil || *wv.Target != 3 {
+			t.Fatalf("Target = %v, want 3", wv.Target)
+		}
+		if cmd2, ok := r.routeOne(cbUpdate(12, 2001, issue("wolf_vote", "abstain"))); !ok {
+			t.Fatal("wolf_vote abstain 未产生命令")
+		} else if w := cmd2.(game.WolfVoteCommand); w.Target != nil {
+			t.Fatalf("abstain Target = %v, want nil（空刀）", w.Target)
+		}
+		if _, ok := r.routeOne(cbUpdate(13, 2001, issue("wolf_confirm", ""))); !ok {
+			t.Fatal("wolf_confirm 未产生命令")
+		}
+	})
+
+	t.Run("女巫救/毒与确认", func(t *testing.T) {
+		cmd, ok := r.routeOne(cbUpdate(21, 2001, issue("witch_save", "yes")))
+		if !ok {
+			t.Fatal("witch_save 未产生命令")
+		}
+		ws, ok := cmd.(game.WitchSaveCommand)
+		if !ok || !ws.Use {
+			t.Fatalf("witch_save(yes) = %T %+v, want Use=true", cmd, ws)
+		}
+		cmd2, ok := r.routeOne(cbUpdate(22, 2001, issue("witch_poison", "5")))
+		if !ok {
+			t.Fatal("witch_poison 未产生命令")
+		}
+		wp, ok := cmd2.(game.WitchPoisonCommand)
+		if !ok || wp.Target == nil || *wp.Target != 5 {
+			t.Fatalf("witch_poison(5) = %T %+v, want Target=5", cmd2, wp)
+		}
+		cmd3, ok := r.routeOne(cbUpdate(23, 2001, issue("witch_poison", "abstain")))
+		if !ok {
+			t.Fatal("witch_poison abstain 未产生命令")
+		}
+		if w := cmd3.(game.WitchPoisonCommand); w.Target != nil {
+			t.Fatalf("abstain Target = %v, want nil（不使用毒药）", w.Target)
+		}
+		if _, ok := r.routeOne(cbUpdate(24, 2001, issue("witch_confirm", ""))); !ok {
+			t.Fatal("witch_confirm 未产生命令")
+		}
+	})
+
+	t.Run("预言家查验与确认", func(t *testing.T) {
+		cmd, ok := r.routeOne(cbUpdate(31, 2001, issue("seer_check", "4")))
+		if !ok {
+			t.Fatal("seer_check 未产生命令")
+		}
+		if sc, ok := cmd.(game.SeerCheckCommand); !ok || sc.Target != 4 {
+			t.Fatalf("seer_check = %T %+v, want Target=4", cmd, sc)
+		}
+		if _, ok := r.routeOne(cbUpdate(32, 2001, issue("seer_confirm", ""))); !ok {
+			t.Fatal("seer_confirm 未产生命令")
+		}
+	})
+
+	t.Run("投票确认与自爆/退出/再来一局", func(t *testing.T) {
+		if _, ok := r.routeOne(cbUpdate(41, 2001, issue("vote_confirm", ""))); !ok {
+			t.Fatal("vote_confirm 未产生命令")
+		}
+		if _, ok := r.routeOne(cbUpdate(42, 2001, issue("explode", ""))); !ok {
+			t.Fatal("explode 未产生命令")
+		}
+		if _, ok := r.routeOne(cbUpdate(43, 2001, issue("leave_game", ""))); !ok {
+			t.Fatal("leave_game 未产生命令")
+		}
+		if _, ok := r.routeOne(cbUpdate(44, 2001, issue("rematch", ""))); !ok {
+			t.Fatal("rematch 未产生命令")
+		}
+	})
+
+	t.Run("遗言与治理", func(t *testing.T) {
+		cmd, ok := r.routeOne(cbUpdate(51, 2001, issue("last_words", "我的遗言")))
+		if !ok {
+			t.Fatal("last_words 未产生命令")
+		}
+		if lw, ok := cmd.(game.LastWordsCommand); !ok || lw.Text != "我的遗言" {
+			t.Fatalf("last_words = %T %+v, want Text=我的遗言", cmd, lw)
+		}
+		if _, ok := r.routeOne(cbUpdate(52, 2001, issue("governance_dissolve", ""))); !ok {
+			t.Fatal("governance_dissolve 未产生命令")
+		}
+		if _, ok := r.routeOne(cbUpdate(53, 2001, issue("governance_dissolve_vote", ""))); !ok {
+			t.Fatal("governance_dissolve_vote 未产生命令")
+		}
+		cmd, ok = r.routeOne(cbUpdate(54, 2001, issue("governance_kick", "2")))
+		if !ok {
+			t.Fatal("governance_kick 未产生命令")
+		}
+		if gk, ok := cmd.(game.GovernanceKickCommand); !ok || gk.Target != 2 {
+			t.Fatalf("governance_kick = %T %+v, want Target=2", cmd, gk)
+		}
+		if _, ok := r.routeOne(cbUpdate(55, 2001, issue("governance_kick_vote", ""))); !ok {
+			t.Fatal("governance_kick_vote 未产生命令")
+		}
+		cmd, ok = r.routeOne(cbUpdate(56, 2001, issue("host_dissolve", "confirm")))
+		if !ok {
+			t.Fatal("host_dissolve(confirm) 未产生命令")
+		}
+		if hd, ok := cmd.(game.HostDissolveCommand); !ok || !hd.Confirm {
+			t.Fatalf("host_dissolve(confirm) = %T %+v, want Confirm=true", cmd, hd)
+		}
+	})
+
+	t.Run("导演本地信号不映射为游戏命令", func(t *testing.T) {
+		if _, ok := r.routeOne(cbUpdate(61, 2001, issue("end_speech", ""))); ok {
+			t.Fatal("end_speech 不应映射为游戏命令（导演本地信号）")
+		}
+	})
+
+	t.Run("旧命令退役", func(t *testing.T) {
+		for _, action := range []string{"wolf_kill", "witch_use", "speak"} {
+			if _, ok := r.routeOne(cbUpdate(70, 2001, issue(action, "3"))); ok {
+				t.Fatalf("旧动作 %s 仍映射为命令，want 退役", action)
+			}
+		}
+	})
+}
+
+// TestRouterDispatchAction 验证 B1-b：回调更新经 DispatchAction 校验 token、
+// 携带 UpdateID/动作/目标交回接线层，重复 update 不重放，ACK 提交 cursor。
+func TestRouterDispatchAction(t *testing.T) {
+	r, store, tokens := newTestRouter(16)
+	tok, err := tokens.Issue(TokenPayload{
+		Owner: 2001, Action: "end_speech", Target: "",
+		ExpectedPhase: game.PhaseDaySpeech, PhaseVersion: 4,
+	})
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+	u := cbUpdate(801, 2001, tok)
+	var got *CallbackAction
+	if err := r.DispatchAction(context.Background(), u, func(ctx context.Context, act CallbackAction) error {
+		got = &act
+		return nil
+	}); err != nil {
+		t.Fatalf("DispatchAction: %v", err)
+	}
+	if got == nil {
+		t.Fatal("apply 未收到 CallbackAction")
+	}
+	if got.UpdateID != 801 || got.Owner != 2001 || got.Action != "end_speech" ||
+		got.ExpectedPhase != game.PhaseDaySpeech || got.PhaseVersion != 4 {
+		t.Fatalf("CallbackAction = %+v, want UpdateID 801/end_speech/day_speech/4", *got)
+	}
+	// 重复 update 不重放。
+	applied := 0
+	if err := r.DispatchAction(context.Background(), u, func(ctx context.Context, act CallbackAction) error {
+		applied++
+		return nil
+	}); err != nil {
+		t.Fatalf("second DispatchAction: %v", err)
+	}
+	if applied != 0 {
+		t.Fatalf("重复 update DispatchAction applied = %d, want 0", applied)
+	}
+	if saved := store.saved(); len(saved) != 1 || saved[0] != 801 {
+		t.Fatalf("saved = %v, want [801]", saved)
+	}
+	// 无效 token：明确拒绝仍 ACK。
+	if err := r.DispatchAction(context.Background(), cbUpdate(802, 2001, "BAD-TOKEN"), func(ctx context.Context, act CallbackAction) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("invalid token DispatchAction: %v", err)
+	}
+	if saved := store.saved(); len(saved) != 2 || saved[1] != 802 {
+		t.Fatalf("saved = %v, want second 802（无效 token 也 ACK）", saved)
+	}
+}

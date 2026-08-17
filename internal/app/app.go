@@ -59,6 +59,14 @@ type CommandHandler interface {
 	Handle(ctx context.Context, cmd game.Command) error
 }
 
+// CallbackActionHandler 是回调动作的消费边界（B1-b）：Router.DispatchAction
+// 校验 token 后把原始动作（含 UpdateID/owner/action/target）交回接线层，
+// 供 reducer 动作与导演本地信号（end_speech 等）分流。
+type CallbackActionHandler interface {
+	// Handle 消费一条校验后的回调动作。
+	Handle(ctx context.Context, act telegram.CallbackAction) error
+}
+
 // App 是装配后的应用实例。
 type App struct {
 	cfg       *config.Config
@@ -75,6 +83,7 @@ type App struct {
 	notifier  AbortNotifier
 	handler   CommandHandler
 	text      TextHandler
+	action    CallbackActionHandler
 
 	sourceCancel context.CancelFunc
 
@@ -209,6 +218,15 @@ func (a *App) dispatchUpdate(ctx context.Context, u telegram.Update) error {
 				return errors.New("app: not accepting commands (stopping)")
 			}
 			return a.text.HandleText(ctx, up)
+		})
+	}
+	if a.action != nil && u.CallbackQuery != nil {
+		// 回调动作：Router 校验 token 后交回接线层分流（B1-b）。
+		return a.router.DispatchAction(ctx, u, func(ctx context.Context, act telegram.CallbackAction) error {
+			if !a.commandsOpen.Load() {
+				return errors.New("app: not accepting commands (stopping)")
+			}
+			return a.action.Handle(ctx, act)
 		})
 	}
 	return a.router.Dispatch(ctx, u, func(ctx context.Context, cmd game.Command) error {

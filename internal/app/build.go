@@ -280,7 +280,9 @@ func Build(ctx context.Context, cfg *config.Config, opts ...Option) (*App, error
 	log.Info("app: build", "step", "outbox")
 
 	// 生产接线（Task 46 缺陷修复）：Attach 注入真实发送器与命令/文本
-	// 处理器；显式 Option 优先于 Wiring 默认。
+	// 处理器；显式 Option 优先于 Wiring 默认。回调动作处理器由 Wiring
+	// 提供（B1-b：Router.DispatchAction 分流 reducer 动作与导演信号）。
+	var actionHandler CallbackActionHandler
 	if o.Wiring != nil {
 		if err := o.Wiring.Attach(db, scheduler); err != nil {
 			return nil, fmt.Errorf("app: attach wiring: %w", err)
@@ -294,6 +296,7 @@ func Build(ctx context.Context, cfg *config.Config, opts ...Option) (*App, error
 		if o.TextHandler == nil {
 			o.TextHandler = o.Wiring.TextHandler()
 		}
+		actionHandler = o.Wiring.ActionHandler()
 	}
 
 	// Room Manager：MVP 先用内存注册表（storage 唯一约束 Registry 适配属后续任务）。
@@ -344,6 +347,7 @@ func Build(ctx context.Context, cfg *config.Config, opts ...Option) (*App, error
 		scanner:   scanner,
 		notifier:  notifier,
 		handler:   handler,
+		action:    actionHandler,
 		text:      o.TextHandler,
 	}
 	a.migrated.Store(true)
