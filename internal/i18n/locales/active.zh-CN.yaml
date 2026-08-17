@@ -22,6 +22,18 @@ phase.private_record.header: "【我的私密记录】"
 phase.god_view.header: "【上帝视角记录】"
 phase.time_left: "本阶段限时：{{.Seconds}} 秒"
 
+# 阶段/夜间/白天播报（B1-d 导演接线补齐；docs 游戏流程设计.md §白天 1、
+# 阶段消息设计.md §3.1/§12：死讯默认不报身份与死因，公开播报不含死因）
+phase.night.start: "🌙 第 {{.PhaseNumber}} 夜 · 天黑请闭眼。"
+night.death: "🌙 死亡播报：{{.Victims}}"
+night.peace: "🌙 平安夜，无人死亡。"
+day.death: "☀️ 死讯：{{.Victims}}{{.Roles}}"
+day.peace: "☀️ 平安夜，无人死亡。"
+day.death_private: "💀 你在夜里死去了。真实身份：{{.Role}}；真实死因：{{.Cause}}。现在进入完整上帝视角，此后消息仅作只读展示。"
+deal.role_card: "🎴 你抽到了 {{.Role}}（{{.Camp}}）。{{.WolfMatesLine}}请记住你的身份，随后确认已查看。"
+deal.wolf_mates_line: "狼队友：{{.Mates}}。"
+deal.confirm_delete: "（身份确认消息已删除）"
+
 # 角色操作（临时操作提示）
 action.wolf.kill.prompt: "请选择要击杀的玩家："
 action.seer.check.prompt: "请选择要查验的玩家："
@@ -220,6 +232,18 @@ rules.intro: |
 speech.self_destruct_hint: |
   ⚠️ 发言提示：你的发言消息（无论是否成功转发）将在 3 秒后自动
   删除，防止消息堆积顶掉阶段消息。
+
+# 白天发言（B1-d 导演接线补齐；docs 游戏流程设计.md §白天、§发言限制、
+# 阶段消息设计.md §10：控制消息/转播/拒绝反馈；原消息 3 秒自毁）
+speech.turn: |
+  🎙 轮到你发言（{{.Seat}}）
+  每条最多 50 单位、本回合最多 5 条。
+
+  已发送：{{.Sent}} / {{.Total}} 条
+  截止时刻：{{.Deadline}}
+speech.accepted: "🗣 {{.Speaker}}：{{.Text}}"
+speech.rejected: "⚠️ {{.Reason}}"
+speech.time_left: "⏳ 发言时间即将结束，请尽快点「结束发言」。"
 commands.private_only: "🔒 请私聊 Bot 使用命令。"
 commands.no_room: "🏠 你不在任何房间中。"
 commands.dead: "💀 你已死亡，无法执行该操作。"

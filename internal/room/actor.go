@@ -13,10 +13,19 @@ import (
 )
 
 // Envelope 是进入房间 Actor 的命令信封（实施计划 Key actor sketch）。
+// Fn 非 nil 时优先执行（B1-d 导演本地推进：发言麦序移交、阶段引导等非
+// reducer 逻辑），否则走 Command 的 reducer 路径；两者都在 Actor goroutine
+// 内串行处理。
 type Envelope struct {
 	Command game.Command
+	Fn      LocalFunc
 	Reply   chan<- Result
 }
+
+// LocalFunc 是导演本地推进函数：接收当前状态，返回新状态 + Effects
+// （B1-d）。只在 Actor goroutine 内执行，保持同房间严格有序
+// （docs/技术选型.md §6.1）。
+type LocalFunc func(st game.State) (game.State, []game.Effect, error)
 
 // EffectSink 是 Effects 的可注入出口（除 TimerEffect 外的副作用）。
 type EffectSink func(effects []game.Effect)
@@ -112,6 +121,46 @@ func (a *Actor) Dispatch(ctx context.Context, cmd game.Command) (Result, error) 
 	}
 }
 
+// DispatchLocal 把导演本地推进函数投递到房间 inbox 并等待结果
+// （B1-d；与 Dispatch 同一信箱串行，见 Envelope.Fn）。
+func (a *Actor) DispatchLocal(ctx context.Context, fn LocalFunc) (Result, error) {
+	if fn == nil {
+		return Result{}, errors.New("room: dispatch local requires non-nil fn")
+	}
+	if a.closed.Load() {
+		return Result{}, ErrClosed
+	}
+	reply := make(chan Result, 1)
+	env := Envelope{Fn: fn, Reply: reply}
+	select {
+	case a.inbox <- env:
+	case <-a.done:
+		return Result{}, ErrClosed
+	case <-ctx.Done():
+		return Result{}, ctx.Err()
+	default:
+		a.inc(inboxFullMetric)
+		return Result{}, ErrInboxFull
+	}
+	select {
+	case res := <-reply:
+		return res, nil
+	case <-a.done:
+		return Result{}, ErrClosed
+	case <-ctx.Done():
+		return Result{}, ctx.Err()
+	}
+}
+
+// Adopt 以 st/fx 覆盖当前状态并应用效果（B1-d）。仅限在 Actor goroutine
+// 内调用（OnApplied 回调中），不重复触发 OnApplied——调用方（导演 pump）
+// 自行驱动后续推进。用于阶段引导（Begin*Phase / BeginVote / ResolveNight）
+// 把结果回写 Actor。
+func (a *Actor) Adopt(st game.State, fx []game.Effect) {
+	a.state = st
+	a.applyEffects(fx)
+}
+
 // Stop 幂等地停止 Actor：取消计时器、关闭接收并等待事件循环 goroutine 退出。
 func (a *Actor) Stop() {
 	a.stopOnce.Do(func() {
@@ -137,7 +186,18 @@ func (a *Actor) run() {
 }
 
 func (a *Actor) handleEnvelope(env Envelope) {
-	res := a.apply(env.Command)
+	var res Result
+	if env.Fn != nil {
+		st, fx, err := env.Fn(a.state)
+		a.state = st
+		a.applyEffects(fx)
+		if a.onApply != nil {
+			a.onApply(st, fx)
+		}
+		res = Result{State: st, Effects: fx, Err: err}
+	} else {
+		res = a.apply(env.Command)
+	}
 	select {
 	case env.Reply <- res:
 	default:

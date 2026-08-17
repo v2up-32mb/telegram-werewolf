@@ -637,3 +637,118 @@ func TestActorOnAppliedHook(t *testing.T) {
 		t.Error("OnApplied 收到 Effects 为空，want 非空")
 	}
 }
+
+// TestActorDispatchLocal 验证 B1-d：导演经 DispatchLocal 在 Actor goroutine
+// 内执行本地推进函数（非 reducer 命令，如发言麦序移交），保持同房间串行；
+// 函数产出的效果与 OnApplied 回调正常生效。
+func TestActorDispatchLocal(t *testing.T) {
+	fc := newFakeClock()
+	eff, err := game.NewMessageEffect(game.AudienceHost, game.LobbyPanelMessageKey, map[string]any{})
+	if err != nil {
+		t.Fatalf("NewMessageEffect: %v", err)
+	}
+	var (
+		mu      sync.Mutex
+		seen    []game.Command
+		applied []game.State
+	)
+	red := &fakeReducer{hook: func(cmd game.Command, st game.State) (game.State, []game.Effect, error) {
+		mu.Lock()
+		seen = append(seen, cmd)
+		mu.Unlock()
+		return st, nil, nil
+	}}
+	a := NewActor(roomState(), red, fc, Options{
+		OnApplied: func(s game.State, fx []game.Effect) {
+			mu.Lock()
+			applied = append(applied, s)
+			mu.Unlock()
+		},
+	})
+	defer a.Stop()
+
+	// 本地推进：把 Day 发言者设为 3 号并产出面板效果。
+	res, err := a.DispatchLocal(context.Background(), func(st game.State) (game.State, []game.Effect, error) {
+		next := st.Copy()
+		next.Phase = game.PhaseDaySpeech
+		next.Day.Speaker = 3
+		return next, []game.Effect{eff}, nil
+	})
+	if err != nil {
+		t.Fatalf("DispatchLocal: %v", err)
+	}
+	if res.Err != nil {
+		t.Fatalf("DispatchLocal result err = %v", res.Err)
+	}
+	if res.State.Phase != game.PhaseDaySpeech || res.State.Day.Speaker != 3 {
+		t.Fatalf("DispatchLocal 状态 = phase %v speaker %d, want day_speech/3", res.State.Phase, res.State.Day.Speaker)
+	}
+	// 本地推进不经过 reducer。
+	mu.Lock()
+	if len(seen) != 0 {
+		t.Fatalf("本地推进误入 reducer，seen = %d", len(seen))
+	}
+	mu.Unlock()
+	// OnApplied 收到本地推进后的状态。
+	waitTrue(t, "本地推进后 OnApplied 状态", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(applied) == 1 && applied[0].Day.Speaker == 3
+	})
+}
+
+// TestActorAdoptAppliesStateAndEffects 验证 B1-d：OnApplied 内经 Adopt 覆盖
+// 状态并应用效果（导演阶段推进），后续 Dispatch 读到采纳后的新状态。
+func TestActorAdoptAppliesStateAndEffects(t *testing.T) {
+	fc := newFakeClock()
+	eff, err := game.NewMessageEffect(game.AudienceHost, game.LobbyPanelMessageKey, map[string]any{})
+	if err != nil {
+		t.Fatalf("NewMessageEffect: %v", err)
+	}
+	sinkCh := make(chan game.Effect, 4)
+	adoptedCh := make(chan game.State, 4)
+	red := &fakeReducer{}
+	var a *Actor
+	a = NewActor(roomState(), red, fc, Options{
+		Sink: func(fx []game.Effect) {
+			for _, e := range fx {
+				sinkCh <- e
+			}
+		},
+		OnApplied: func(s game.State, fx []game.Effect) {
+			// 首次应用后立即推进到 DaySpeech（导演 pump 示例）。
+			if s.Phase == game.PhaseLobby {
+				next := s.Copy()
+				next.Phase = game.PhaseDaySpeech
+				next.Day.Speaker = 5
+				a.Adopt(next, []game.Effect{eff})
+				adoptedCh <- next
+			}
+		},
+	})
+	defer a.Stop()
+
+	if _, err := a.Dispatch(context.Background(), plainCmd(0, time.Time{})); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	select {
+	case s := <-adoptedCh:
+		if s.Phase != game.PhaseDaySpeech || s.Day.Speaker != 5 {
+			t.Fatalf("Adopt 状态 = phase %v speaker %d, want day_speech/5", s.Phase, s.Day.Speaker)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("OnApplied 未触发 Adopt")
+	}
+	// Adopt 的效果经 Sink 扇出。
+	select {
+	case <-sinkCh:
+	default:
+		t.Fatal("Adopt 的效果未经 Sink 扇出")
+	}
+	// 后续 Dispatch（reducer 返回原状）读到采纳后的状态。
+	if r, err := a.Dispatch(context.Background(), plainCmd(1, time.Time{})); err != nil {
+		t.Fatalf("second Dispatch: %v", err)
+	} else if r.State.Phase != game.PhaseDaySpeech {
+		t.Fatalf("采纳后 Dispatch 状态 phase = %v, want day_speech（Adopt 状态持久）", r.State.Phase)
+	}
+}

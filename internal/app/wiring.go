@@ -65,6 +65,8 @@ type Wiring struct {
 	// tokens 是回调令牌注册表：与 Router 共用同一实例（B1-c），导演向
 	// 该注册表下发按钮 token，Router 校验同名 token（docs/技术选型.md §7.3）。
 	tokens *telegram.CallbackManager
+	// director 是局内导演（B1-d）：挂在 Actor.OnApplied 上驱动阶段推进与扇出。
+	director *roomDirector
 }
 
 // NewWiring 创建生产接线（此时不触网；Client 创建延后到首次发送时按需）。
@@ -99,6 +101,7 @@ func (w *Wiring) Attach(db *sql.DB, outbox *outbox.Scheduler) error {
 	w.db = db
 	w.outbox = outbox
 	w.tokens = telegram.NewCallbackManager(defaultCallbackTokenCapacity)
+	w.director = newDirector(w)
 
 	w.repo = storage.NewRoomRepository(db)
 	w.users = storage.NewUserRepository(db)
@@ -470,6 +473,12 @@ func newLiveRegistry() *liveRegistry {
 func (r *liveRegistry) create(st game.State, host game.UserID, now time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// Settings 由接线层填充（docs「房间设置修改截止」：建房后配置快照；
+	// 领域 State.Settings 零值表示未填充）。MVP 起点为默认配置；后续
+	// SettingsService 修改经 room_settings 表持久化并按需刷新。
+	if st.Settings == (game.RoomSettings{}) {
+		st.Settings = game.DefaultRoomSettings()
+	}
 	r.rooms[st.RoomID] = &liveRoom{
 		host: host,
 		st:   st,
@@ -528,6 +537,20 @@ func (r *liveRegistry) removePlayer(code game.RoomID, user game.UserID, newOwner
 	}
 }
 
+// removeRoom 移除房间（结算/解散/回收）：注销注册表与用户唯一约束。
+func (r *liveRegistry) removeRoom(code game.RoomID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	lr, ok := r.rooms[code]
+	if !ok {
+		return
+	}
+	for _, p := range lr.st.Players {
+		delete(r.byUser, p.UserID)
+	}
+	delete(r.rooms, code)
+}
+
 func (r *liveRegistry) pushPending(roomID game.RoomID, actor game.UserID, fx []game.Effect) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -570,6 +593,18 @@ func (h *textHandler) HandleText(ctx context.Context, u telegram.Update) error {
 		IsPrivate:  u.Message.ChatID == u.Message.UserID,
 	}
 	h.w.log.Info("app: text command", "update", u.UpdateID, "chat", u.Message.ChatID, "user", u.Message.UserID, "text", summarize(u.Message.Text))
+	// 白天发言拦截（B1-d）：非斜杠命令且发送者为当前发言者时走导演发言，
+	// 否则走命令面（/start /newgame /join /role /score /leave /help /rank）。
+	if !isSlashCommand(in.Text) {
+		if roomID, ok := h.reg.roomOf(in.Actor); ok {
+			if h.w.director.trySpeak(roomID, in.Actor, in.ChatID, int64(u.Message.MessageID), in.Text) {
+				return nil
+			}
+			if h.w.director.tryLastWords(roomID, in.Actor, in.CommandID, in.Text) {
+				return nil
+			}
+		}
+	}
 	if err := h.commands.Handle(ctx, in); err != nil {
 		// 命令面已尽量反馈；外部错误只记日志，仍返回 nil 以避免
 		// update_id 卡死重投风暴（Router.DispatchText 以 nil 才提交 cursor）。
@@ -904,8 +939,8 @@ func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.Callbac
 	}
 	cmd, ok := telegram.CallbackCommand(payload, meta)
 	if !ok {
-		h.w.log.Debug("app: callback action is director-local (await B1-d)", "action", act.Action)
-		return nil // 明确 ACK，不重投
+		// 导演本地信号（end_speech 等）：交导演处理（B1-d）。
+		return h.w.director.handleAction(ctx, act)
 	}
 	return h.w.handleCommand(ctx, cmd)
 }
@@ -941,7 +976,8 @@ func (w *Wiring) handleCommand(ctx context.Context, cmd game.Command) error {
 			}
 			return w.applyEffects(ctx, "cb:"+string(roomID), roomID, meta.Actor, fx)
 		case game.StartGameCommand:
-			lr.actor = room.NewActor(lr.st, game.NewReducer(), room.NewRealClock(), room.Options{})
+			lr.actor = w.newGameActor(lr.st)
+			w.director.bind(roomID, lr.actor)
 			res, err := lr.actor.Dispatch(ctx, c)
 			if err != nil {
 				w.log.Warn("app: start game dispatch", "room", string(roomID), "error", err)
@@ -951,8 +987,8 @@ func (w *Wiring) handleCommand(ctx context.Context, cmd game.Command) error {
 				w.log.Warn("app: start game rejected", "room", string(roomID), "error", res.Err)
 				return nil // 领域拒绝（人数不足等）：ACK，不重投
 			}
-			w.reg.updateState(roomID, res.State)
-			return w.applyEffects(ctx, "cb:"+string(roomID), roomID, meta.Actor, res.Effects)
+			// 发牌效果已由导演 OnApplied 扇出；导演同步 reg 状态（含 Adopt）。
+			return nil
 		case game.LeaveGameCommand:
 			// 大厅退出走 /leave 文本路径；回调版兜底 ACK。
 			return nil
@@ -971,8 +1007,18 @@ func (w *Wiring) handleCommand(ctx context.Context, cmd game.Command) error {
 		w.log.Warn("app: command rejected", "room", string(roomID), "command", fmt.Sprintf("%T", cmd), "error", res.Err)
 		return nil
 	}
-	w.reg.updateState(roomID, res.State)
-	return w.applyEffects(ctx, "cb:"+string(roomID), roomID, meta.Actor, res.Effects)
+	// 效果已由导演 OnApplied 扇出；导演同步 reg 状态（含 Adopt 的阶段推进）。
+	return nil
+}
+
+// newGameActor 创建开局 Actor：绑定导演 OnApplied（B1-a/B1-d）。
+func (w *Wiring) newGameActor(st game.State) *room.Actor {
+	roomID := st.RoomID
+	return room.NewActor(st, game.NewReducer(), room.NewRealClock(), room.Options{
+		OnApplied: func(ast game.State, fx []game.Effect) {
+			w.director.onApplied(roomID, ast, fx)
+		},
+	})
 }
 
 // commandMetaOf 提取全部命令的 Meta（Router 产出的命令均携带 Meta）。
