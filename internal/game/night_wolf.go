@@ -41,7 +41,7 @@ var (
 	ErrWolfVoteClosed = errors.New("game: wolf vote is closed")
 )
 
-// beginWolfPhase 在夜间开始（后续 P0 接线层收到 phase.night.start 时调用，
+// BeginWolfPhase 在夜间开始（后续 P0 接线层收到 phase.night.start 时调用，
 // 与 MediaCache/SendRoleCard 的接线延期同理；本任务提供领域函数与测试，
 // 不改动 deal.go 与 Task 28 既有过渡效果契约）初始化狼人投票窗口：
 //   - WolfRound=1、WolfVotes/WolfLocked 初始化为空；
@@ -53,7 +53,7 @@ var (
 //
 // 狼人标识与队友名单只出现在 wolf.* 消息 params（AudienceWolf/
 // AudienceGodView），绝不进入 AudiencePublic（docs §狼人标识 双保险）。
-func beginWolfPhase(st State) (State, []Effect, error) {
+func BeginWolfPhase(st State) (State, []Effect, error) {
 	effects := make([]Effect, 0, 4)
 	mates := aliveWolfSeats(st.Players)
 

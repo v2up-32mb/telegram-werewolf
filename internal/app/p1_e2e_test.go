@@ -175,101 +175,12 @@ func p1OtherDuration(s game.RoomSettings) time.Duration {
 }
 
 // ---------------------------------------------------------------------------
-// p1Wiring：参考接线层复刻 begin*/resolve* 的导出契约
+// 夜间/白天窗口使用 internal/game 导出的 Begin*Phase / BeginVote / ResolveNight
+// 直接驱动（删除 begin*/resolve* 的测试内复刻，统一走引擎实现）。
+// 说明：p1ResolveNight/p1Settle 保留为「不产结算战报/持久化」的简化契约；
+// 完整结算（settlement.report + PersistSettlementEffect）由引擎 ResolveNight
+// 产出（Task 40 能力，见 mvp_e2e 结算断言）。
 // ---------------------------------------------------------------------------
-
-// p1OpenWolf 复刻 beginWolfPhase（docs §夜间 2）：
-// WolfRound=1、WolfVotes/WolfLocked 初始化；存活狼人收 wolf.discuss +
-// wolf.vote（AudienceWolf，params 含 round/targets/wolf_mates）；已死亡
-// 玩家收同内容上帝视角副本（AudienceGodView）；TimerEffect 30 秒。
-func p1OpenWolf(st game.State) (game.State, []game.Effect, error) {
-	effects := make([]game.Effect, 0, 4)
-	mates := p1AliveWolfSeats(st.Players)
-
-	discuss, err := game.NewMessageEffect(game.AudienceWolf, game.WolfDiscussMessageKey, map[string]any{
-		"round":      1,
-		"wolf_mates": mates,
-	})
-	if err != nil {
-		return st, nil, err
-	}
-	effects = append(effects, discuss)
-	vote, err := game.NewMessageEffect(game.AudienceWolf, game.WolfVoteMessageKey, map[string]any{
-		"round":      1,
-		"targets":    p1AliveSeats(st.Players),
-		"wolf_mates": mates,
-	})
-	if err != nil {
-		return st, nil, err
-	}
-	effects = append(effects, vote)
-	for _, p := range st.Players {
-		if p.Dead && p.Seat.Valid() {
-			god, err := game.NewMessageEffect(game.AudienceGodView, game.WolfDiscussMessageKey, map[string]any{
-				"round":      1,
-				"wolf_mates": mates,
-			})
-			if err != nil {
-				return st, nil, err
-			}
-			effects = append(effects, god)
-			break
-		}
-	}
-	next := st.Copy()
-	next.Night.WolfRound = 1
-	next.Night.WolfVotes = map[game.Seat]*game.Seat{}
-	next.Night.WolfLocked = map[game.Seat]bool{}
-	effects = append(effects, game.TimerEffect{Phase: game.PhaseNight, Duration: p1WolfDuration(next.Settings)})
-	return next, effects, nil
-}
-
-// p1OpenWitch 复刻 beginWitchPhase（docs §夜间 3）：女巫收
-// witch.kill_reveal（kill_target）+ witch.save.prompt；WitchStage=Save、
-// WitchUsedTonight=false、WitchFirstNight=firstNight；TimerEffect 15 秒。
-func p1OpenWitch(st game.State, firstNight bool) (game.State, []game.Effect, error) {
-	effects := make([]game.Effect, 0, 3)
-	reveal, err := game.NewMessageEffect(game.AudienceActor, game.WitchKillRevealMessageKey, map[string]any{
-		"kill_target": st.Night.WolfKillTarget,
-	})
-	if err != nil {
-		return st, nil, err
-	}
-	effects = append(effects, reveal)
-	prompt, err := game.NewMessageEffect(game.AudienceActor, game.WitchSavePromptMessageKey, map[string]any{
-		"save_used":   st.Night.WitchSaveUsed,
-		"poison_used": st.Night.WitchPoisonUsed,
-	})
-	if err != nil {
-		return st, nil, err
-	}
-	effects = append(effects, prompt)
-
-	next := st.Copy()
-	next.Night.WitchStage = game.WitchStageSave
-	next.Night.WitchUsedTonight = false
-	next.Night.WitchFirstNight = firstNight
-	next.Night.WitchSaveChoice = nil
-	next.Night.WitchPoisonChoice = nil
-	next.Night.WitchPoisonSkip = false
-	effects = append(effects, game.TimerEffect{Phase: game.PhaseNight, Duration: p1OtherDuration(next.Settings)})
-	return next, effects, nil
-}
-
-// p1OpenSeer 复刻 beginSeerPhase（docs §夜间 4）：预言家收 seer.prompt
-// （targets）；SeerActive=true、SeerPending=nil；TimerEffect 15 秒。
-func p1OpenSeer(st game.State) (game.State, []game.Effect, error) {
-	prompt, err := game.NewMessageEffect(game.AudienceSeer, game.SeerPromptMessageKey, map[string]any{
-		"targets": p1AliveSeats(st.Players),
-	})
-	if err != nil {
-		return st, nil, err
-	}
-	next := st.Copy()
-	next.Night.SeerActive = true
-	next.Night.SeerPending = nil
-	return next, []game.Effect{prompt, game.TimerEffect{Phase: game.PhaseNight, Duration: p1OtherDuration(next.Settings)}}, nil
-}
 
 // p1ResolveNight 复刻 resolveNight（Task 32 契约，docs §结算 1/§白天 1）：
 // ①狼刀（当晚救则不死）→ 刀后即时胜负；②毒药 → 毒后即时胜负；
@@ -1075,7 +986,7 @@ func TestP1NightEndToEnd(t *testing.T) {
 
 	// ---- 第 1 夜：狼人窗口 ----
 	cursor := d.flush()
-	d.openWindow("wolf", p1OpenWolf)
+	d.openWindow("wolf", game.BeginWolfPhase)
 	if d.st.Night.WolfRound != 1 {
 		t.Fatalf("N1 WolfRound = %d, want 1", d.st.Night.WolfRound)
 	}
@@ -1116,7 +1027,7 @@ func TestP1NightEndToEnd(t *testing.T) {
 
 	// ---- 第 1 夜：女巫（第一夜，不救不用毒） ----
 	cursor = d.flush()
-	d.openWindow("witch", func(s game.State) (game.State, []game.Effect, error) { return p1OpenWitch(s, true) })
+	d.openWindow("witch", func(s game.State) (game.State, []game.Effect, error) { return game.BeginWitchPhase(s, true) })
 	if d.st.Night.WitchStage != game.WitchStageSave || !d.st.Night.WitchFirstNight {
 		t.Fatalf("N1 witch stage/firstNight = %d/%v", d.st.Night.WitchStage, d.st.Night.WitchFirstNight)
 	}
@@ -1146,7 +1057,7 @@ func TestP1NightEndToEnd(t *testing.T) {
 	d.cancelTimer("seer", game.PhaseNight, 3)  // 防残留（窗口尚未开启时无实际记录，幂等）
 
 	// ---- 第 1 夜：预言家 ----
-	d.openWindow("seer", p1OpenSeer)
+	d.openWindow("seer", game.BeginSeerPhase)
 	if !d.st.Night.SeerActive {
 		t.Fatalf("N1 seer 窗口未开启")
 	}
@@ -1187,7 +1098,7 @@ func TestP1NightEndToEnd(t *testing.T) {
 	d.st.Phase = game.PhaseNight
 	d.st.PhaseVersion++
 	cursor = d.flush()
-	d.openWindow("wolf", p1OpenWolf)
+	d.openWindow("wolf", game.BeginWolfPhase)
 	if d.st.Night.WolfRound != 1 {
 		t.Fatalf("N2 WolfRound = %d, want 1", d.st.Night.WolfRound)
 	}
@@ -1205,7 +1116,7 @@ func TestP1NightEndToEnd(t *testing.T) {
 
 	// ---- 第 2 夜：女巫（不救 + 毒狼） ----
 	cursor = d.flush()
-	d.openWindow("witch", func(s game.State) (game.State, []game.Effect, error) { return p1OpenWitch(s, false) })
+	d.openWindow("witch", func(s game.State) (game.State, []game.Effect, error) { return game.BeginWitchPhase(s, false) })
 	if d.st.Night.WitchFirstNight {
 		t.Fatalf("N2 WitchFirstNight = true, want false")
 	}
@@ -1228,7 +1139,7 @@ func TestP1NightEndToEnd(t *testing.T) {
 	d.cancelTimer("witch", game.PhaseNight, 5)
 
 	// ---- 第 2 夜：预言家查验存活好人 ----
-	d.openWindow("seer", p1OpenSeer)
+	d.openWindow("seer", game.BeginSeerPhase)
 	var g3 game.Seat
 	for _, s := range p1AliveSeats(d.st.Players) {
 		if s != d.wolfSeats[0] && s != d.wolfSeats[1] && s != g1 && s != w2 && !p1SeatDead(st.Players, s) {

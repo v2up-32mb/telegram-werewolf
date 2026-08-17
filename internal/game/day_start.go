@@ -21,7 +21,7 @@ const (
 )
 
 // ErrDayNotInDayPhase 表示 DayStart 的前置阶段不是 PhaseDaySpeech
-// （夜间结算 resolveNight 已切换阶段后才可播报白天死讯）。
+// （夜间结算 ResolveNight 已切换阶段后才可播报白天死讯）。
 var ErrDayNotInDayPhase = errors.New("game: day start requires PhaseDaySpeech")
 
 // DeathCause 描述死者真实死因（docs §白天 1：死者私聊可见真实死因）。
@@ -51,7 +51,7 @@ func (c DeathCause) String() string {
 	}
 }
 
-// DayOutcome 是夜结算后的白天播报输入（接线层在 resolveNight 之后构造；
+// DayOutcome 是夜结算后的白天播报输入（接线层在 ResolveNight 之后构造；
 // 测试直接构造）。Victims 为当夜死者座位（升序归一后进入公共 params），
 // Cause 只允许记录 Victims 中的座位。
 type DayOutcome struct {
@@ -69,7 +69,7 @@ type DayOutcome struct {
 //  3. 每名死者一条 day.death_private（AudienceActor）：本人真实身份
 //     与真实死因（Cause 缺省/非法时归一为 CauseUnknown）。
 //
-// 前置条件：st.Phase 必须已是 PhaseDaySpeech（resolveNight 已切阶段并
+// 前置条件：st.Phase 必须已是 PhaseDaySpeech（ResolveNight 已切阶段并
 // 清理夜间窗口）；DayStart 不重复改动 Phase/PhaseVersion，也不修改状态。
 // 校验失败时返回原状态与明确错误。
 func DayStart(st State, out DayOutcome) (State, []Effect, error) {

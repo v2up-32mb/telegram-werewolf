@@ -587,3 +587,53 @@ func TestActorStop(t *testing.T) {
 		}
 	})
 }
+
+// TestActorOnAppliedHook 验证 OnApplied 在每个命令/超时应用后于 Actor
+// goroutine 内回调（携带新状态与该次 Effects）：涵盖 Dispatch 即时路径与
+// Timer 触发路径（docs/技术选型.md §6.1/§6.2；生产导演依赖此钩子驱动
+// 阶段推进与效果扇出，B1-a）。
+func TestActorOnAppliedHook(t *testing.T) {
+	fc := newFakeClock()
+	eff, err := game.NewMessageEffect(game.AudienceHost, game.LobbyPanelMessageKey, map[string]any{})
+	if err != nil {
+		t.Fatalf("NewMessageEffect: %v", err)
+	}
+	var (
+		mu     sync.Mutex
+		states []game.State
+		nfx    int
+	)
+	red := &fakeReducer{hook: func(cmd game.Command, st game.State) (game.State, []game.Effect, error) {
+		return st, []game.Effect{eff, game.TimerEffect{Phase: game.PhaseNight, Duration: 30 * time.Second}}, nil
+	}}
+	a := NewActor(roomState(), red, fc, Options{
+		OnApplied: func(s game.State, fx []game.Effect) {
+			mu.Lock()
+			defer mu.Unlock()
+			states = append(states, s)
+			nfx += len(fx)
+		},
+	})
+	defer a.Stop()
+
+	// 即时路径：Dispatch 后 OnApplied 触发一次。
+	if _, err := a.Dispatch(context.Background(), plainCmd(0, time.Time{})); err != nil {
+		t.Fatalf("Dispatch error = %v, want nil", err)
+	}
+	// Timer 路径：到期触发 TimeoutCommand → OnApplied 第二次。
+	fc.Advance(30 * time.Second)
+
+	waitTrue(t, "OnApplied 触发次数", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(states) == 2
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	if len(states) != 2 {
+		t.Fatalf("OnApplied 触发次数 = %d, want 2（Dispatch + Timer 到期）", len(states))
+	}
+	if nfx == 0 {
+		t.Error("OnApplied 收到 Effects 为空，want 非空")
+	}
+}

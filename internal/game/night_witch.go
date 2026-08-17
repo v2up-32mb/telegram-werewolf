@@ -61,8 +61,8 @@ var (
 	ErrWitchNothingToSave = errors.New("game: no kill target to save tonight")
 )
 
-// beginWitchPhase 在狼人阶段结束后开启女巫阶段（后续 P0 接线层在
-// 收到狼人阶段结束钩子时调用；与 beginWolfPhase 的接线延期同理）。
+// BeginWitchPhase 在狼人阶段结束后开启女巫阶段（后续 P0 接线层在
+// 收到狼人阶段结束钩子时调用；与 BeginWolfPhase 的接线延期同理）。
 // firstNight 表示是否为首夜（docs「自救仅首夜可选」；接线层从
 // 阶段序号推导传入）：
 //   - WitchStage=1（解药窗口）、WitchUsedTonight 重置为 false、
@@ -76,7 +76,7 @@ var (
 // 刀口与用药选择只出现在 witch.* 消息 params（AudienceActor/
 // AudienceGodView），绝不进入 AudiencePublic（docs §死亡角色跳过行动
 // 防泄密 + effect.go 双保险）。
-func beginWitchPhase(st State, firstNight bool) (State, []Effect, error) {
+func BeginWitchPhase(st State, firstNight bool) (State, []Effect, error) {
 	effects := make([]Effect, 0, 3)
 
 	reveal, err := NewMessageEffect(AudienceActor, WitchKillRevealMessageKey, map[string]any{

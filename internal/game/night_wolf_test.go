@@ -54,7 +54,7 @@ func countWolfEffects(effects []Effect) map[string]int {
 }
 
 // wolfNightEffects 校验狼人开始的讨论/投票消息集合。
-// TestWolfNightBeginEffects 验证进入夜间时 beginWolfPhase（经 deal.go
+// TestWolfNightBeginEffects 验证进入夜间时 BeginWolfPhase（经 deal.go
 // 钩子）产出：每只存活狼人收到 wolf.discuss（AudienceWolf）与 wolf.vote
 // （AudienceWolf，含 round/目标存活座位/wolf_mates）；已死亡玩家收到
 // 同内容讨论副本（AudienceGodView）；TimerEffect 为 30 秒 PhaseNight；
@@ -67,9 +67,9 @@ func TestWolfNightBeginEffects(t *testing.T) {
 	st.Players[2] = Player{UserID: 3, Seat: Seat(3), Role: RoleSeer, Dead: true} // 上帝视角
 	st.Night.SeerChecked = map[Seat]bool{}
 
-	after, effects, err := beginWolfPhase(st)
+	after, effects, err := BeginWolfPhase(st)
 	if err != nil {
-		t.Fatalf("beginWolfPhase error = %v, want nil", err)
+		t.Fatalf("BeginWolfPhase error = %v, want nil", err)
 	}
 	if after.Night.WolfRound != 1 {
 		t.Errorf("WolfRound = %d, want 1", after.Night.WolfRound)

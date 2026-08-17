@@ -29,8 +29,8 @@ var (
 	ErrSeerNoSelection = errors.New("game: seer must select a target before confirming")
 )
 
-// beginSeerPhase 在女巫阶段结束后开启预言家阶段（后续 P0 接线层在
-// 收到女巫阶段结束钩子时调用；与 beginWolfPhase/beginWitchPhase 的
+// BeginSeerPhase 在女巫阶段结束后开启预言家阶段（后续 P0 接线层在
+// 收到女巫阶段结束钩子时调用；与 BeginWolfPhase/BeginWitchPhase 的
 // 接线延期同理）：
 //   - SeerActive=true、SeerPending=nil（清空待确认选择）；
 //   - 查验历史（SeerResults/SeerChecked）跨夜持续携带，不清空；
@@ -41,7 +41,7 @@ var (
 // 查验目标与结果只出现在 seer.* 消息 params（AudienceSeer/
 // AudienceGodView），绝不进入 AudiencePublic（docs §5 私密标记仅
 // 预言家本人可见 + effect.go 双保险）。
-func beginSeerPhase(st State) (State, []Effect, error) {
+func BeginSeerPhase(st State) (State, []Effect, error) {
 	prompt, err := NewMessageEffect(AudienceSeer, SeerPromptMessageKey, map[string]any{
 		"targets": aliveSeats(st.Players),
 	})

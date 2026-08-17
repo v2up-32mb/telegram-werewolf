@@ -68,8 +68,8 @@ type NightState struct {
 	// 女巫夜间（Task 30，docs §夜间 3、§8.2 女巫）：
 	// WitchStage 是连续决策窗口（0=关闭/未开始，1=解药窗口，
 	// 2=毒药窗口）；WitchFirstNight 记录是否首夜（自救仅首夜可选，
-	// 由接线层调用 beginWitchPhase 时传入）；WitchUsedTonight 是本夜
-	// 是否已用一瓶（beginWitchPhase 重置，reducer 保证一夜一瓶）；
+	// 由接线层调用 BeginWitchPhase 时传入）；WitchUsedTonight 是本夜
+	// 是否已用一瓶（BeginWitchPhase 重置，reducer 保证一夜一瓶）；
 	// WitchSaveChoice/WitchPoisonChoice/WitchPoisonSkip 是各窗口的
 	// 待确认选择（确认前可修改，确认后锁定）。
 	WitchStage        WitchStage

@@ -53,7 +53,7 @@ func countWitchEffects(effects []Effect) map[string]int {
 	return out
 }
 
-// TestWitchBeginPhaseEffects 验证进入女巫阶段时 beginWitchPhase 产出：
+// TestWitchBeginPhaseEffects 验证进入女巫阶段时 BeginWitchPhase 产出：
 // 刀口告知（witch.kill_reveal，AudienceActor，含 kill_target）、解药窗口
 // 提示（witch.save.prompt，AudienceActor，含药品状态）、15 秒 PhaseNight
 // TimerEffect；WitchStage=1、WitchUsedTonight 重置为 false、
@@ -62,18 +62,18 @@ func TestWitchBeginPhaseEffects(t *testing.T) {
 	st := witchNightFixture()
 	st.Night.WitchStage = WitchStageClosed
 
-	after, effects, err := beginWitchPhase(st, true)
+	after, effects, err := BeginWitchPhase(st, true)
 	if err != nil {
-		t.Fatalf("beginWitchPhase error = %v, want nil", err)
+		t.Fatalf("BeginWitchPhase error = %v, want nil", err)
 	}
 	if after.Night.WitchStage != WitchStageSave {
 		t.Errorf("WitchStage = %d, want %d（解药窗口）", after.Night.WitchStage, WitchStageSave)
 	}
 	if after.Night.WitchUsedTonight {
-		t.Error("beginWitchPhase 未重置 WitchUsedTonight")
+		t.Error("BeginWitchPhase 未重置 WitchUsedTonight")
 	}
 	if !after.Night.WitchFirstNight {
-		t.Error("beginWitchPhase(firstNight=true) 未记录首夜语义")
+		t.Error("BeginWitchPhase(firstNight=true) 未记录首夜语义")
 	}
 
 	got := countWitchEffects(effects)

@@ -50,7 +50,7 @@ func countSeerEffects(effects []Effect) map[string]int {
 	return out
 }
 
-// TestSeerBeginPhaseEffects 验证进入预言家阶段时 beginSeerPhase 产出：
+// TestSeerBeginPhaseEffects 验证进入预言家阶段时 BeginSeerPhase 产出：
 // 查验提示（seer.prompt，AudienceSeer，含存活目标列表）、15 秒
 // PhaseNight TimerEffect；SeerActive=true、SeerPending=nil；
 // 已有查验历史（SeerResults/SeerChecked）跨夜保留不清空；
@@ -61,21 +61,21 @@ func TestSeerBeginPhaseEffects(t *testing.T) {
 	st.Night.SeerResults = map[Seat]Camp{1: CampWolf}
 	st.Night.SeerChecked = map[Seat]bool{1: true}
 
-	after, effects, err := beginSeerPhase(st)
+	after, effects, err := BeginSeerPhase(st)
 	if err != nil {
-		t.Fatalf("beginSeerPhase error = %v, want nil", err)
+		t.Fatalf("BeginSeerPhase error = %v, want nil", err)
 	}
 	if !after.Night.SeerActive {
-		t.Error("beginSeerPhase 未开启查验窗口")
+		t.Error("BeginSeerPhase 未开启查验窗口")
 	}
 	if after.Night.SeerPending != nil {
 		t.Errorf("SeerPending = %v, want nil", after.Night.SeerPending)
 	}
 	if after.Night.SeerResults[1] != CampWolf {
-		t.Error("beginSeerPhase 清空了查验历史（应跨夜保留）")
+		t.Error("BeginSeerPhase 清空了查验历史（应跨夜保留）")
 	}
 	if !after.Night.SeerChecked[1] {
-		t.Error("beginSeerPhase 清空了 SeerChecked（应跨夜保留）")
+		t.Error("BeginSeerPhase 清空了 SeerChecked（应跨夜保留）")
 	}
 
 	got := countSeerEffects(effects)
@@ -232,16 +232,16 @@ func TestSeerTimeoutEmptyCheck(t *testing.T) {
 }
 
 // TestSeerHistoryPersistsOnNewNight 验证查验历史跨夜持续携带：
-// 已有结果在 beginSeerPhase 后仍保留（下一夜可引用历史私密标记）。
+// 已有结果在 BeginSeerPhase 后仍保留（下一夜可引用历史私密标记）。
 func TestSeerHistoryPersistsOnNewNight(t *testing.T) {
 	st := seerNightFixture()
 	st.Night.SeerActive = false
 	st.Night.SeerResults = map[Seat]Camp{5: CampGood}
 	st.Night.SeerChecked = map[Seat]bool{5: true}
 
-	after, _, err := beginSeerPhase(st)
+	after, _, err := BeginSeerPhase(st)
 	if err != nil {
-		t.Fatalf("beginSeerPhase error = %v", err)
+		t.Fatalf("BeginSeerPhase error = %v", err)
 	}
 	if after.Night.SeerResults[5] != CampGood || !after.Night.SeerChecked[5] {
 		t.Error("新夜开启后历史查验结果丢失")

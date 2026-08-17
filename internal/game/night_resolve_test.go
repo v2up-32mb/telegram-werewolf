@@ -73,9 +73,9 @@ func deadSeats(st State) []Seat {
 func TestResolveNightWolfKillNotSaved(t *testing.T) {
 	st := resolveFixture()
 
-	after, effects, err := resolveNight(st)
+	after, effects, err := ResolveNight(st)
 	if err != nil {
-		t.Fatalf("resolveNight error = %v", err)
+		t.Fatalf("ResolveNight error = %v", err)
 	}
 	if !reflect.DeepEqual(deadSeats(after), []Seat{5}) {
 		t.Errorf("死亡座位 = %v, want [5]", deadSeats(after))
@@ -103,9 +103,9 @@ func TestResolveNightWolfKillSaved(t *testing.T) {
 	st.Night.WitchUsedTonight = true
 	st.Night.WitchSaveUsed = true
 
-	after, effects, err := resolveNight(st)
+	after, effects, err := ResolveNight(st)
 	if err != nil {
-		t.Fatalf("resolveNight error = %v", err)
+		t.Fatalf("ResolveNight error = %v", err)
 	}
 	if len(deadSeats(after)) != 0 {
 		t.Errorf("死亡座位 = %v, want 无人死亡（解药救下刀口）", deadSeats(after))
@@ -125,9 +125,9 @@ func TestResolveNightPoisonOnly(t *testing.T) {
 	target := Seat(3)
 	st.Night.WitchPoisonTarget = &target
 
-	after, effects, err := resolveNight(st)
+	after, effects, err := ResolveNight(st)
 	if err != nil {
-		t.Fatalf("resolveNight error = %v", err)
+		t.Fatalf("ResolveNight error = %v", err)
 	}
 	if !reflect.DeepEqual(deadSeats(after), []Seat{3}) {
 		t.Errorf("死亡座位 = %v, want [3]", deadSeats(after))
@@ -147,9 +147,9 @@ func TestResolveNightKillAndPoisonDifferentTargets(t *testing.T) {
 	poison := Seat(3)
 	st.Night.WitchPoisonTarget = &poison
 
-	after, effects, err := resolveNight(st)
+	after, effects, err := ResolveNight(st)
 	if err != nil {
-		t.Fatalf("resolveNight error = %v", err)
+		t.Fatalf("ResolveNight error = %v", err)
 	}
 	if !reflect.DeepEqual(deadSeats(after), []Seat{3, 5}) {
 		t.Errorf("死亡座位 = %v, want [3 5]", deadSeats(after))
@@ -169,9 +169,9 @@ func TestResolveNightKillAndPoisonSameTarget(t *testing.T) {
 	poison := Seat(5)
 	st.Night.WitchPoisonTarget = &poison
 
-	after, _, err := resolveNight(st)
+	after, _, err := ResolveNight(st)
 	if err != nil {
-		t.Fatalf("resolveNight error = %v", err)
+		t.Fatalf("ResolveNight error = %v", err)
 	}
 	if !reflect.DeepEqual(deadSeats(after), []Seat{5}) {
 		t.Errorf("死亡座位 = %v, want [5]（刀毒同目标只死一次）", deadSeats(after))
@@ -183,9 +183,9 @@ func TestResolveNightPeaceNight(t *testing.T) {
 	st := resolveFixture()
 	st.Night.WolfKillTarget = nil
 
-	after, effects, err := resolveNight(st)
+	after, effects, err := ResolveNight(st)
 	if err != nil {
-		t.Fatalf("resolveNight error = %v", err)
+		t.Fatalf("ResolveNight error = %v", err)
 	}
 	if len(deadSeats(after)) != 0 {
 		t.Errorf("平安夜死亡座位 = %v, want 无", deadSeats(after))
@@ -215,9 +215,9 @@ func TestResolveNightWolfKillTriggersFirst(t *testing.T) {
 	poison := Seat(2)
 	st.Night.WitchPoisonTarget = &poison
 
-	after, effects, err := resolveNight(st)
+	after, effects, err := ResolveNight(st)
 	if err != nil {
-		t.Fatalf("resolveNight error = %v", err)
+		t.Fatalf("ResolveNight error = %v", err)
 	}
 	if after.Phase != PhaseSettlement {
 		t.Fatalf("Phase = %v, want PhaseSettlement", after.Phase)
@@ -272,9 +272,9 @@ func TestResolveNightPoisonTriggersVictory(t *testing.T) {
 	poison := Seat(2)
 	st.Night.WitchPoisonTarget = &poison
 
-	after, _, err := resolveNight(st)
+	after, _, err := ResolveNight(st)
 	if err != nil {
-		t.Fatalf("resolveNight error = %v", err)
+		t.Fatalf("ResolveNight error = %v", err)
 	}
 	if after.Phase != PhaseSettlement {
 		t.Fatalf("Phase = %v, want PhaseSettlement", after.Phase)
@@ -307,9 +307,9 @@ func TestResolveNightNoVictoryGoesToDay(t *testing.T) {
 	st.Night.WitchUsedTonight = false // 无人死亡之外再叠加：狼 1 已死也不影响
 	st.Players[0].Dead = true         // 狼 1 死
 
-	after, _, err := resolveNight(st)
+	after, _, err := ResolveNight(st)
 	if err != nil {
-		t.Fatalf("resolveNight error = %v", err)
+		t.Fatalf("ResolveNight error = %v", err)
 	}
 	if after.Phase != PhaseDaySpeech {
 		t.Errorf("Phase = %v, want PhaseDaySpeech", after.Phase)
@@ -342,9 +342,9 @@ func TestResolveNightLaterActionsVoided(t *testing.T) {
 	poison := Seat(2)
 	st.Night.WitchPoisonTarget = &poison
 
-	after, _, err := resolveNight(st)
+	after, _, err := ResolveNight(st)
 	if err != nil {
-		t.Fatalf("resolveNight error = %v", err)
+		t.Fatalf("ResolveNight error = %v", err)
 	}
 	if after.Phase != PhaseSettlement {
 		t.Fatalf("前置失败：Phase = %v", after.Phase)
@@ -377,15 +377,15 @@ func TestDeadRoleStageDuration(t *testing.T) {
 }
 
 // TestResolveNightDeadRoleStageNotSkipped 验证死亡角色阶段不跳过但技能
-// 被拒：女巫已死后 beginWitchPhase 仍进入解药窗口并产生阶段效果（固定
+// 被拒：女巫已死后 BeginWitchPhase 仍进入解药窗口并产生阶段效果（固定
 // 流程），但选择/确认命令经通用 validator 返回 ErrDeadPlayer。
 func TestResolveNightDeadRoleStageNotSkipped(t *testing.T) {
 	st := resolveFixture()
 	st.Players[3].Dead = true // 4 号女巫死亡
 
-	after, effects, err := beginWitchPhase(st, true)
+	after, effects, err := BeginWitchPhase(st, true)
 	if err != nil {
-		t.Fatalf("beginWitchPhase(死亡女巫) error = %v（阶段不应被跳过）", err)
+		t.Fatalf("BeginWitchPhase(死亡女巫) error = %v（阶段不应被跳过）", err)
 	}
 	if after.Night.WitchStage != WitchStageSave {
 		t.Errorf("WitchStage = %d, want %d（仍进入解药窗口）", after.Night.WitchStage, WitchStageSave)
@@ -413,9 +413,9 @@ func TestResolveNightSeerWindowCleared(t *testing.T) {
 	pending := Seat(2)
 	st.Night.SeerPending = &pending
 
-	after, _, err := resolveNight(st)
+	after, _, err := ResolveNight(st)
 	if err != nil {
-		t.Fatalf("resolveNight error = %v", err)
+		t.Fatalf("ResolveNight error = %v", err)
 	}
 	if after.Night.SeerActive || after.Night.SeerPending != nil {
 		t.Error("SeerActive/SeerPending 未清理")

@@ -765,7 +765,7 @@ func (d *mvpDriver) driveNight(step scenarioStep) error {
 	}
 
 	// ---- 狼人窗口 ----
-	d.openWindow("wolf", p1OpenWolf)
+	d.openWindow("wolf", game.BeginWolfPhase)
 	if step.WolfTimeout {
 		clk := d.clk
 		clk.Advance(p1WolfDuration(d.st.Settings))
@@ -803,12 +803,12 @@ func (d *mvpDriver) driveNight(step scenarioStep) error {
 
 	// ---- 女巫窗口 ----
 	if step.WitchTimeout {
-		d.openWindow("witch", func(s game.State) (game.State, []game.Effect, error) { return p1OpenWitch(s, step.Night == 1) })
+		d.openWindow("witch", func(s game.State) (game.State, []game.Effect, error) { return game.BeginWitchPhase(s, step.Night == 1) })
 		clk := d.clk
 		clk.Advance(p1OtherDuration(d.st.Settings))
 		d.fireDueTimers()
 	} else {
-		d.openWindow("witch", func(s game.State) (game.State, []game.Effect, error) { return p1OpenWitch(s, step.Night == 1) })
+		d.openWindow("witch", func(s game.State) (game.State, []game.Effect, error) { return game.BeginWitchPhase(s, step.Night == 1) })
 		u := d.userBySeat[d.witchSeat]
 		save := step.WitchSave != nil && *step.WitchSave
 		if err := d.apply(game.WitchSaveCommand{Meta: d.meta(fmt.Sprintf("ws-%d", step.Night), u, game.PhaseNight, ver), Use: save}); err != nil {
@@ -841,12 +841,12 @@ func (d *mvpDriver) driveNight(step scenarioStep) error {
 
 	// ---- 预言家窗口 ----
 	if step.SeerTimeout {
-		d.openWindow("seer", p1OpenSeer)
+		d.openWindow("seer", game.BeginSeerPhase)
 		clk := d.clk
 		clk.Advance(p1OtherDuration(d.st.Settings))
 		d.fireDueTimers()
 	} else {
-		d.openWindow("seer", p1OpenSeer)
+		d.openWindow("seer", game.BeginSeerPhase)
 		target, err := d.resolveSelector(step.SeerCheck)
 		if err != nil {
 			return err

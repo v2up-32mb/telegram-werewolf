@@ -22,7 +22,7 @@ import (
 //     有 30 秒遗言（last_words.* 并正常转播）；房主选择「报身份」时无
 //     遗言；狼人自爆永远无遗言属 Task 38 自爆路径，本任务不实现自爆；
 //   - 白天结束 Phase=PhaseNight、PhaseVersion+1；夜间主消息与夜序号由
-//     接线层负责（game 核心不维护夜序号，与 resolveNight 不产出
+//     接线层负责（game 核心不维护夜序号，与 ResolveNight 不产出
 //     day-start 键一致）。
 //
 // 已知缺口（如实记录，不阻塞本任务）：
@@ -414,7 +414,7 @@ func (r reducer) lastWordsTimeout(st State, cmd TimeoutCommand) (State, []Effect
 
 // finishDayVote 结束白天并进入黑夜：Phase=PhaseNight、PhaseVersion+1。
 // 夜间主消息与 phase.night.start 的夜序号由接线层负责（game 核心不维护
-// 夜序号；与 resolveNight 切入白天时不产出 day-start 键一致）。
+// 夜序号；与 ResolveNight 切入白天时不产出 day-start 键一致）。
 func finishDayVote(st State) (State, []Effect, error) {
 	st.Phase = PhaseNight
 	st.PhaseVersion++

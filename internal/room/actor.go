@@ -26,6 +26,12 @@ type Options struct {
 	InboxSize int                    // bounded inbox 容量；<=0 时用默认值
 	Metrics   *observability.Metrics // 轻量计数器（可为 nil）
 	Sink      EffectSink             // Effects 出口（可为 nil）
+
+	// OnApplied 在每个命令/超时成功应用后，于 Actor goroutine 内回调，
+	// 携带该次应用后的新状态与本批 Effects（B1-a）。供生产导演驱动
+	// 阶段推进（night/day pump）与效果扇出（含 Timer 触发路径产生的
+	// 效果，修复 B3：onTimerFire 丢弃的 Result 经 Sink 不丢）。
+	OnApplied func(st game.State, fx []game.Effect)
 }
 
 // defaultInboxSize 是默认 bounded inbox 容量。
@@ -43,6 +49,7 @@ type Actor struct {
 	clock   Clock
 	sink    EffectSink
 	metrics *observability.Metrics
+	onApply func(st game.State, fx []game.Effect)
 
 	done     chan struct{}
 	stopOnce sync.Once
@@ -69,6 +76,7 @@ func NewActor(initial game.State, reducer game.Reducer, clock Clock, opts Option
 		clock:   clock,
 		sink:    opts.Sink,
 		metrics: opts.Metrics,
+		onApply: opts.OnApplied,
 		done:    make(chan struct{}),
 	}
 	a.wg.Add(1)
@@ -153,6 +161,11 @@ func (a *Actor) apply(cmd game.Command) Result {
 	// 计入过期拒绝计数（docs/技术选型.md §11.3）。
 	if errors.Is(err, game.ErrStalePhaseVersion) {
 		a.inc(observability.MetricStaleRejected)
+	}
+	// B1-a：无论成功/拒绝，都在 Actor goroutine 内回传新状态与本批 Effects，
+	// 供导演驱动阶段推进与效果扇出（拒绝时 effects 为空）。
+	if a.onApply != nil {
+		a.onApply(st, effects)
 	}
 	return Result{State: st, Effects: effects, Err: err}
 }

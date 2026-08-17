@@ -18,7 +18,7 @@ const (
 	SettlementVictoryMessageKey = "settlement.victory"
 )
 
-// resolveNight 按固定行动顺序结算一夜死亡并即时判定胜负
+// ResolveNight 按固定行动顺序结算一夜死亡并即时判定胜负
 // （docs 游戏流程设计.md §结算 1、§白天 1）：
 //
 //  1. 狼人刀人结算：WolfKillTarget 死亡，当且仅当女巫当晚未用解药
@@ -37,7 +37,7 @@ const (
 // 后续行动作废）。未分胜负：Phase=PhaseDaySpeech、PhaseVersion+1。
 // 两种路径都清理夜间窗口（WolfRound/WitchStage/SeerActive 与待确认
 // 选择），并产出死讯/平安夜与胜利消息效果。
-func resolveNight(st State) (State, []Effect, error) {
+func ResolveNight(st State) (State, []Effect, error) {
 	next := st.Copy()
 	effects := make([]Effect, 0, 2)
 	victims := []Seat(nil)
