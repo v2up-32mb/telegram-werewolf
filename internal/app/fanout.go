@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/v2up-32mb/telegram-werewolf/internal/game"
 	"github.com/v2up-32mb/telegram-werewolf/internal/outbox"
@@ -38,8 +39,15 @@ func (w *Wiring) fanOut(roomID game.RoomID, st game.State, fx []game.Effect) err
 			// I2：房主强制解散扣分。
 			w.applyScorePenalty(roomID, te)
 		case game.DelayEffect:
-			// I1：3 秒自毁等延迟效果（依赖消息注册表，本阶段仅记录）。
-			w.log.Debug("app: delay effect (I1 wiring pending)", "room", string(roomID), "after", te.After)
+			// I1：延迟执行 Inner（发言原消息 3 秒自毁等，docs 阶段消息设计.md
+			// §16）。定时回调仍经 fanOut，删除语义见 speech.self_delete 分支。
+			inner := te.Inner
+			roomID, st := roomID, st
+			time.AfterFunc(te.After, func() {
+				if err := w.fanOut(roomID, st, []game.Effect{inner}); err != nil {
+					w.log.Warn("app: delay fanout", "room", string(roomID), "error", err)
+				}
+			})
 		default:
 			w.log.Debug("app: effect ignored", "room", string(roomID), "type", fmt.Sprintf("%T", e))
 		}
@@ -49,6 +57,17 @@ func (w *Wiring) fanOut(roomID game.RoomID, st game.State, fx []game.Effect) err
 
 // fanOutMessage 把单条消息效果按受众分派到所有目标私聊，逐接收者渲染。
 func (w *Wiring) fanOutMessage(roomID game.RoomID, st game.State, e game.MessageEffect) error {
+	// 发言原消息 3 秒自毁（docs 游戏流程设计.md §发言限制 2）：删除操作，
+	// 不经受众分派/渲染。
+	if e.Key == game.SpeechSelfDeleteMessageKey {
+		chat, ok1 := e.Params["chat_id"].(int64)
+		msgID, ok2 := e.Params["message_id"].(int)
+		if !ok1 || !ok2 {
+			return fmt.Errorf("app: speech.self_delete 参数缺失 chat_id/message_id")
+		}
+		return w.enqueue("fx:"+string(roomID), roomID, chat, telegram.OpDeleteMessage,
+			telegram.Params{ChatID: chat, MessageID: msgID}, outbox.PriorityHigh, "")
+	}
 	chats, err := w.audienceChats(e.Audience, st, e)
 	if err != nil {
 		return err

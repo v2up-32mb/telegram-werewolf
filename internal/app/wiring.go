@@ -50,10 +50,13 @@ type Wiring struct {
 
 	db     *sql.DB
 	outbox *outbox.Scheduler
-	reg    *liveRegistry
-	repo   *storage.RoomRepository
-	users  *storage.UserRepository
-	now    func() time.Time
+	// coalescer 对尚未发送的低优先级阶段更新按 (ChatID, CoalesceKey) 合并
+	//（I1b，docs 技术选型.md §7.1：面板刷新等滚动更新只保留最新版本）。
+	coalescer *outbox.Coalescer
+	reg       *liveRegistry
+	repo      *storage.RoomRepository
+	users     *storage.UserRepository
+	now       func() time.Time
 
 	commands *telegram.CommandsHandler
 	handler  *callbackHandler
@@ -94,14 +97,16 @@ func NewWiring(ctx context.Context, cfg *config.Config, log *slog.Logger, oo ...
 
 // Attach 由 Build 在 DB 打开、Outbox 装配完成后注入依赖并构造全部组件。
 // 幂等：重复调用返回错误。
-func (w *Wiring) Attach(db *sql.DB, outbox *outbox.Scheduler) error {
+func (w *Wiring) Attach(db *sql.DB, sched *outbox.Scheduler) error {
 	if w.db != nil || w.outbox != nil {
 		return errors.New("app: wiring already attached")
 	}
 	w.db = db
-	w.outbox = outbox
+	w.outbox = sched
 	w.tokens = telegram.NewCallbackManager(defaultCallbackTokenCapacity)
 	w.director = newDirector(w)
+	w.coalescer = outbox.NewCoalescer()
+	w.startCoalescerFlusher()
 
 	w.repo = storage.NewRoomRepository(db)
 	w.users = storage.NewUserRepository(db)
@@ -245,12 +250,14 @@ func (w *Wiring) client() (telegram.Client, error) {
 // Outbox 消息构造与效果管线
 // ---------------------------------------------------------------------------
 
-// enqueue 把一条 operation 消息投递给 Outbox Scheduler。
+// enqueue 把一条 operation 消息投递给 Outbox：可合并消息（CoalesceKey 非空）
+// 先进 Coalescer 合并（同 key 只保留最新版本），其余直投 Scheduler
+// （docs 技术选型.md §7.1）。
 func (w *Wiring) enqueue(corr string, roomID game.RoomID, chat int64, op string, params telegram.Params, prio outbox.Priority, coalesce string) error {
 	if w.outbox == nil {
 		return fmt.Errorf("app: wiring outbox not attached")
 	}
-	return w.outbox.Enqueue(outbox.Message{
+	msg := outbox.Message{
 		CorrelationID: corr,
 		RoomID:        roomID,
 		ChatID:        outbox.ChatID(chat),
@@ -258,7 +265,32 @@ func (w *Wiring) enqueue(corr string, roomID game.RoomID, chat int64, op string,
 		Priority:      prio,
 		CoalesceKey:   coalesce,
 		Payload:       params,
-	})
+	}
+	if coalesce != "" {
+		w.coalescer.Submit(msg)
+		return nil
+	}
+	return w.outbox.Enqueue(msg)
+}
+
+// startCoalescerFlusher 轮询把 Coalescer 待发消息送入 Scheduler（I1b）。
+// Scheduler 关闭（应用停机）时退出。
+func (w *Wiring) startCoalescerFlusher() {
+	go func() {
+		for {
+			m, ok := w.coalescer.Next()
+			if !ok {
+				time.Sleep(20 * time.Millisecond)
+				continue
+			}
+			if err := w.outbox.Enqueue(m); err != nil {
+				if errors.Is(err, outbox.ErrClosed) {
+					return
+				}
+				w.log.Warn("app: coalescer flush enqueue", "error", err)
+			}
+		}
+	}()
 }
 
 // sendText 渲染 i18n 文案并作为 send_text 投递（默认 MarkdownV2）。
