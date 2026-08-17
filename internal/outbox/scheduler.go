@@ -27,19 +27,32 @@ type Scheduler struct {
 	stopCh   chan struct{}
 	baseCtx  context.Context
 	cancel   context.CancelFunc
+	onErr    func(msg Message, err error)
 	wg       sync.WaitGroup
+}
+
+// SchedulerOption 配置 Scheduler 构造。
+type SchedulerOption func(*Scheduler)
+
+// WithSendErrorHandler 注册发送错误回调：worker 发送失败时上报
+// （消息与错误），供上层记录日志/指标。默认 nil 表示静默
+// （Task 46 冒烟缺陷：发送失败被静默重试丢弃、无任何日志，
+// 导致 newgame 创建确认缺失无法排查）。
+func WithSendErrorHandler(h func(msg Message, err error)) SchedulerOption {
+	return func(s *Scheduler) { s.onErr = h }
 }
 
 // NewScheduler 创建全局调度器。
 //
 // send 是消息发送回调；capacity 是每个 Chat 队列的容量上限，必须大于 0
 // （配置层尚无容量字段，容量作为构造参数传入，见 Task 17 决策）。
-func NewScheduler(send SendFunc, capacity int) *Scheduler {
+// 可选 SchedulerOption（如 WithSendErrorHandler）用于发送失败观测。
+func NewScheduler(send SendFunc, capacity int, opts ...SchedulerOption) *Scheduler {
 	if capacity <= 0 {
 		panic("outbox: scheduler capacity must be positive")
 	}
 	baseCtx, cancel := context.WithCancel(context.Background())
-	return &Scheduler{
+	s := &Scheduler{
 		queues:   make(map[ChatID]*Queue),
 		send:     send,
 		capacity: capacity,
@@ -47,6 +60,12 @@ func NewScheduler(send SendFunc, capacity int) *Scheduler {
 		baseCtx:  baseCtx,
 		cancel:   cancel,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(s)
+		}
+	}
+	return s
 }
 
 // Enqueue 将 msg 投递到对应 Chat 的队列。
@@ -79,22 +98,32 @@ func (s *Scheduler) worker(q *Queue) {
 	for {
 		select {
 		case msg := <-q.ch:
-			_ = s.send(s.baseCtx, msg)
+			if err := s.send(s.baseCtx, msg); err != nil {
+				// 不再静默丢弃：TDD 红线（Task 46 冒烟缺陷）——发送失败必须
+				// 上报 onErr（上层记日志），否则 400/429 类失败无从排查。
+				if s.onErr != nil {
+					s.onErr(msg, err)
+				}
+			}
 		case <-s.stopCh:
-			drain(s.send, q)
+			drain(s.send, q, s.onErr)
 			return
 		}
 	}
 }
 
 // drain 在关闭阶段尽力发送队列中剩余的消息后返回。
-func drain(send SendFunc, q *Queue) {
+func drain(send SendFunc, q *Queue, onErr func(msg Message, err error)) {
 	for {
 		msg, ok := q.TryDequeue()
 		if !ok {
 			return
 		}
-		_ = send(context.Background(), msg)
+		if err := send(context.Background(), msg); err != nil {
+			if onErr != nil {
+				onErr(msg, err)
+			}
+		}
 	}
 }
 

@@ -267,3 +267,91 @@ func (r *RoomRepository) RoomSettings(ctx context.Context, code game.RoomID) (st
 	}
 	return row.Settings, nil
 }
+
+// CountHostRooms 返回指定宿主当前活跃房间数（建房唯一性预检，
+// docs/游戏流程设计.md §一.7：同一房主只能开 1 个进行中的房间）。
+func (r *RoomRepository) CountHostRooms(ctx context.Context, host game.UserID) (int64, error) {
+	var n int64
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM rooms WHERE host_user_id = ?`, int64(host)).Scan(&n); err != nil {
+		return 0, fmt.Errorf("storage: count host rooms: %w", err)
+	}
+	return n, nil
+}
+
+// CodeFree 报告房间码当前未被占用（建房唯一性预检；真正唯一性由
+// Create 的唯一约束在事务内兜底）。
+func (r *RoomRepository) CodeFree(ctx context.Context, code game.RoomID) (bool, error) {
+	var n int64
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM rooms WHERE room_code = ?`, string(code)).Scan(&n); err != nil {
+		return false, fmt.Errorf("storage: check room code %q: %w", code, err)
+	}
+	return n == 0, nil
+}
+
+// RoomExists 报告房间当前是否存在于 rooms 表。
+func (r *RoomRepository) RoomExists(ctx context.Context, code game.RoomID) (bool, error) {
+	var n int64
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM rooms WHERE room_code = ?`, string(code)).Scan(&n); err != nil {
+		return false, fmt.Errorf("storage: check room %q: %w", code, err)
+	}
+	return n > 0, nil
+}
+
+// PlayerInRoom 报告用户是否已在目标房间（重复入房判定）。
+func (r *RoomRepository) PlayerInRoom(ctx context.Context, code game.RoomID, user game.UserID) (bool, error) {
+	var n int64
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM room_players WHERE room_code = ? AND user_id = ?`, string(code), int64(user)).Scan(&n); err != nil {
+		return false, fmt.Errorf("storage: check player in room %q: %w", code, err)
+	}
+	return n > 0, nil
+}
+
+// UserInAnyRoom 报告用户是否已在任一活跃房间（单活跃房间约束，
+// docs/游戏流程设计.md §二.4）。
+func (r *RoomRepository) UserInAnyRoom(ctx context.Context, user game.UserID) (bool, error) {
+	var n int64
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM room_players WHERE user_id = ?`, int64(user)).Scan(&n); err != nil {
+		return false, fmt.Errorf("storage: check user rooms: %w", err)
+	}
+	return n > 0, nil
+}
+
+// RoomNicknames 返回房间内玩家当前使用的昵称（users.nickname 全局
+// 身份；房间昵称唯一性按该集合 fold 判定）。
+func (r *RoomRepository) RoomNicknames(ctx context.Context, code game.RoomID) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT u.nickname FROM room_players p JOIN users u ON u.telegram_id = p.user_id WHERE p.room_code = ?`, string(code))
+	if err != nil {
+		return nil, fmt.Errorf("storage: list room nicknames %q: %w", code, err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, fmt.Errorf("storage: scan room nickname %q: %w", code, err)
+		}
+		out = append(out, n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("storage: iterate room nicknames %q: %w", code, err)
+	}
+	return out, nil
+}
+
+// RemoveRoom 删除活跃房间（级联清理 room_players/room_settings）。
+// 用于大厅房主最后一人退出/房间解散的收尾，避免遗留房间在下次启动
+// 被 ListActive 误判为未结束局触发中止通知。
+func (r *RoomRepository) RemoveRoom(ctx context.Context, code game.RoomID) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM rooms WHERE room_code = ?`, string(code))
+	if err != nil {
+		return fmt.Errorf("storage: remove room %q: %w", code, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("storage: remove room %q rows: %w", code, err)
+	}
+	if n == 0 {
+		return ErrRoomNotFound
+	}
+	return nil
+}

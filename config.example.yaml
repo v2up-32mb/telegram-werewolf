@@ -6,7 +6,10 @@
 #
 # 启动时对关键配置做显式校验，缺失或非法会直接报错退出。
 
-database_path: data/werewolf.db          # SQLite 数据库文件路径
+database_path: data/werewolf.db
+# Telegram Bot API 基址；留空使用官方 https://api.telegram.org。
+# 无代理环境建议指向中转服务（env TELEGRAM_BOT_API_BASE_URL 亦可覆盖）：
+# api_base_url: https://tg-api.510222.xyz          # SQLite 数据库文件路径
 update_mode: polling                     # 更新接收方式；MVP 仅支持 Long Polling
 health_address: ""                       # 健康检查监听地址（/healthz、/readyz）；空字符串表示禁用，例如 ":8080"
 log_format: text                         # 日志格式：text（开发）| json（生产）

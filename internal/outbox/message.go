@@ -41,4 +41,8 @@ type Message struct {
 	Priority Priority
 	// CoalesceKey 标识可被同 Key 更新合并/覆盖的滚动消息（Task 18 使用）。
 	CoalesceKey string
+	// Payload 是 operation 的执行参数（不透明载荷，由发送层按
+	// Operation 断言具体类型；MVP 由 internal/telegram.Params 承载，
+	// 本包不依赖 telegram 类型以避免依赖环）。
+	Payload any
 }

@@ -54,6 +54,35 @@ jobs:
       - name: make check
         run: make check
 
+  real-template-smoke:
+    name: real template send smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # 全模板真实发送冒烟（Task 46）：把 locales/active.zh-CN.yaml 全部
+    # i18n 模板经生产同款 Renderer 渲染后用真实 Bot API（MarkdownV2）
+    # 发送到测试账号，验证无 400/渲染错误。token 仅经 Secrets 注入，
+    # 绝不入库/日志。GitHub Actions 的 job 级 if 不支持 secrets 上下文，
+    # 故在 step env 注入并由 shell 对空值守卫：未配置 Secrets 时跳过。
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Real send smoke (all i18n templates)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_API_BASE_URL: ${{ secrets.TELEGRAM_BOT_API_BASE_URL }}
+          TELEGRAM_SMOKE_CHAT_ID: ${{ secrets.TELEGRAM_SMOKE_CHAT_ID }}
+        run: |
+          if [ -z "${TELEGRAM_BOT_TOKEN}" ] || [ -z "${TELEGRAM_SMOKE_CHAT_ID}" ]; then
+            echo "Secrets TELEGRAM_BOT_TOKEN/TELEGRAM_SMOKE_CHAT_ID 未配置，跳过真实发送冒烟"
+            exit 0
+          fi
+          go test ./internal/app -run '^TestTemplateRealSendSmoke$' -count=1 -v
+
   race:
     name: race
     runs-on: ubuntu-24.04

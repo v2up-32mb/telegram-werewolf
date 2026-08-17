@@ -11,6 +11,9 @@ import (
 const (
 	EnvBotToken      = "TELEGRAM_BOT_TOKEN"
 	EnvWebhookSecret = "TELEGRAM_WEBHOOK_SECRET"
+	// EnvBotAPIBaseURL 允许用环境变量覆盖 Bot API 基址（价值/接入点可配置，
+	// 无需代理的内网中转服务；空则官方 api.telegram.org）。
+	EnvBotAPIBaseURL = "TELEGRAM_BOT_API_BASE_URL"
 )
 
 // Load 按 默认值 → YAML 配置 → 环境变量覆盖 的顺序加载配置。
@@ -36,6 +39,9 @@ func Load(path string, lookupEnv func(string) (string, bool)) (*Config, error) {
 	}
 	if v, ok := lookupEnv(EnvWebhookSecret); ok {
 		cfg.Webhook.Secret = v
+	}
+	if v, ok := lookupEnv(EnvBotAPIBaseURL); ok {
+		cfg.BotAPIBaseURL = v
 	}
 
 	return &cfg, nil

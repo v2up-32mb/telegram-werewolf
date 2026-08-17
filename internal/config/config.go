@@ -15,7 +15,12 @@ import (
 // 敏感值（BotToken、Webhook.Secret）不写入 YAML，
 // 由环境变量 TELEGRAM_BOT_TOKEN / TELEGRAM_WEBHOOK_SECRET 提供并覆盖。
 type Config struct {
-	BotToken      string        `yaml:"bot_token"`
+	BotToken string `yaml:"bot_token"`
+	// BotAPIBaseURL 是 Telegram Bot API 基址；空表示官方
+	// https://api.telegram.org。生产可用 env TELEGRAM_BOT_API_BASE_URL
+	// 指向无需代理的中转服务（如 https://tg-api.510222.xyz，Task 46
+	// 冒烟：代理长轮询挂起导致收不到更新，改直连中转服务）。
+	BotAPIBaseURL string        `yaml:"api_base_url"`
 	DatabasePath  string        `yaml:"database_path"`
 	UpdateMode    string        `yaml:"update_mode"`
 	HealthAddress string        `yaml:"health_address"`

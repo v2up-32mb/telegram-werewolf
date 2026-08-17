@@ -6,10 +6,6 @@ import (
 	"strings"
 )
 
-// CreateRoomMessageKey 是建房成功通知房主的消息 key（含房间码参数，
-// 由后续渲染任务按 key + params 产出 MarkdownV2 文案）。
-const CreateRoomMessageKey = "lobby.created"
-
 // RandomRoomCodeLength 是默认随机房间码位数（docs「房间码规范」1）。
 const RandomRoomCodeLength = 6
 

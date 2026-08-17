@@ -65,36 +65,20 @@ func newTestLobby(t *testing.T, reg LobbyRoomRegistry, rng RNG) LobbyService {
 	return svc
 }
 
-// requireCreateRoomEffects 断言建房成功产生房主确认消息与 active 记录副作用。
+// requireCreateRoomEffects 断言建房成功只产生最小活跃局记录副作用。
+// 创建确认文案由命令面 commands.newgame_done 承担（Task 46 冒烟修复：
+// 领域层不再产出 lobby.created 文案 effect，避免缺失文案的 und 渲染
+// 错误与同一次 /newgame 连发多条）。
 func requireCreateRoomEffects(t *testing.T, effects []Effect, code RoomID) {
 	t.Helper()
-	var msg *MessageEffect
 	var persist *PersistEffect
 	for _, e := range effects {
 		switch v := e.(type) {
 		case MessageEffect:
-			msg = &v
+			t.Errorf("CreateRoom 不应产出文案 effect（创建确认由命令面承担），got %T %+v", e, e)
 		case PersistEffect:
 			persist = &v
 		}
-	}
-	if msg == nil {
-		t.Fatal("effects 缺少 MessageEffect")
-	}
-	if msg.Audience != AudienceHost {
-		t.Errorf("MessageEffect.Audience = %v, want AudienceHost", msg.Audience)
-	}
-	if msg.Key != CreateRoomMessageKey {
-		t.Errorf("MessageEffect.Key = %q, want %q", msg.Key, CreateRoomMessageKey)
-	}
-	if got, ok := msg.Params["room_code"].(string); !ok || got != string(code) {
-		t.Errorf("MessageEffect.Params[room_code] = %v, want %q", msg.Params["room_code"], code)
-	}
-	if got, ok := msg.Params["host_seat"].(Seat); !ok || got != HostSeat {
-		t.Errorf("MessageEffect.Params[host_seat] = %v, want %v", msg.Params["host_seat"], HostSeat)
-	}
-	if got, ok := msg.Params["player_count"].(int); !ok || got != MVPPlayerCount {
-		t.Errorf("MessageEffect.Params[player_count] = %v, want %d", msg.Params["player_count"], MVPPlayerCount)
 	}
 	if persist == nil {
 		t.Fatal("effects 缺少 PersistEffect（最小活跃局记录）")

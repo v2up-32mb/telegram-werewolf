@@ -54,6 +54,20 @@ func (r *Router) Dispatch(ctx context.Context, u Update, apply func(context.Cont
 	return r.store.Save(ctx, u.UpdateID)
 }
 
+// DispatchText 是文本命令的独立分派入口（App 接线层使用）：保持
+// update_id 去重与 ACK cursor 语义，但把原始 Update 原样交给接线层解析
+// ——Task 41 命令面（CommandsHandler）需要保留 /newgame 自定义码等文本
+// 参数，不能折叠为 game.Command。与 Dispatch 仅差 apply 的入参形态。
+func (r *Router) DispatchText(ctx context.Context, u Update, apply func(context.Context, Update) error) error {
+	if !r.dedupe.Accept(u.UpdateID) {
+		return nil
+	}
+	if err := apply(ctx, u); err != nil {
+		return err
+	}
+	return r.store.Save(ctx, u.UpdateID)
+}
+
 // routeOne 把 update 解析为领域命令；不产生命令时返回 ok=false
 // （不可识别文本 / 越权或失效 token / 未知 action）。
 func (r *Router) routeOne(u Update) (game.Command, bool) {

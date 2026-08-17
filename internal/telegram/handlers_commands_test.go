@@ -35,12 +35,13 @@ type fakeCreate struct {
 	err    error
 	called int
 	req    game.CreateRoomRequest
+	roomID game.RoomID
 }
 
 func (f *fakeCreate) CreateRoom(_ context.Context, req game.CreateRoomRequest) (game.State, []game.Effect, error) {
 	f.called++
 	f.req = req
-	return game.State{}, nil, f.err
+	return game.State{RoomID: f.roomID}, nil, f.err
 }
 
 type fakeJoin struct {
@@ -331,7 +332,7 @@ func TestCommandsRole(t *testing.T) {
 // error.invalid_input 且不调用服务。
 func TestCommandsNewGame(t *testing.T) {
 	sender := &fakeSender{}
-	create := &fakeCreate{}
+	create := &fakeCreate{roomID: "ABC123"}
 	h := newTestCommandsHandler(t, sender, create, &fakeJoin{}, &fakeLeave{}, &fakeRole{}, &fakeScore{})
 
 	if err := h.Handle(context.Background(), commandIn("/newgame ABC123", true)); err != nil {
@@ -345,6 +346,15 @@ func TestCommandsNewGame(t *testing.T) {
 	}
 	if len(sender.sent) != 1 || !strings.Contains(sender.sent[0].text, "创建") {
 		t.Errorf("建房回复 = %q, want commands.newgame_done", sender.sent[0].text)
+	}
+	// 缺陷回归：创建确认必须带房间码参数（旧模板字面 `<房间码>` 未转义
+	// 会在真实发送端 400 "can't parse entities"）；参数经 Renderer 渲染，
+	// 纯字母数字房间码无需转义，但不得再出现裸尖括号模板残留。
+	if !strings.Contains(sender.sent[0].text, "ABC123") {
+		t.Errorf("建房回复应含房间码参数 ABC123，got %q", sender.sent[0].text)
+	}
+	if strings.Contains(sender.sent[0].text, "<") || strings.Contains(sender.sent[0].text, ">") {
+		t.Errorf("建房回复不得含未转义尖括号（MarkdownV2 400 根因），got %q", sender.sent[0].text)
 	}
 
 	sender.sent = nil
@@ -385,8 +395,11 @@ func TestCommandsJoin(t *testing.T) {
 	if join.req.Actor != 1001 || join.req.RoomID != "ABC123" {
 		t.Errorf("Join 请求 = %+v", join.req)
 	}
-	if len(sender.sent) != 1 || !strings.Contains(sender.sent[0].text, "加入") {
-		t.Errorf("加入回复 = %q, want commands.join_done", sender.sent[0].text)
+	// 缺陷回归（#27 同语义双发）：/join 成功后命令面不再发送
+	// commands.join_done——加入确认由领域 join.confirmed（含昵称/座位）
+	// 承担，避免加入者同时收到两条「已加入」。
+	if len(sender.sent) != 0 {
+		t.Errorf("/join 成功不应发命令面 join_done，实际 %d 条: %+v", len(sender.sent), sender.sent)
 	}
 
 	sender.sent = nil
@@ -419,6 +432,29 @@ func TestCommandsJoin(t *testing.T) {
 	if len(sender.sent) != 1 || !strings.Contains(sender.sent[0].text, "密码错误") {
 		t.Errorf("密码错误回复 = %q, want commands.wrong_password", sender.sent[0].text)
 	}
+
+	// 缺陷回归（红测，Task 46 S7）：/join 明确场景必须映射明确反馈，
+	// 不得落入 error.generic「出错了，请稍后重试」。
+	for _, tc := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"重复加入本房", game.ErrAlreadyInRoom, "已在房间"},
+		{"已在其他房间", game.ErrUserInRoom, "已在房间"},
+		{"房间不存在", game.ErrRoomNotFound, "房间不存在"},
+		{"房间已过期", game.ErrRoomExpired, "房间不存在"},
+		{"非法房间码", game.ErrInvalidRoomCode, "房间码"},
+	} {
+		sender.sent = nil
+		join.err = tc.err
+		if err := h.Handle(context.Background(), commandIn("/join abc123", true)); err != nil {
+			t.Fatalf("/join(%s): %v", tc.name, err)
+		}
+		if len(sender.sent) != 1 || !strings.Contains(sender.sent[0].text, tc.want) {
+			t.Errorf("/join(%s) 回复 = %q, want 含 %q（不得回 error.generic）", tc.name, sender.sent[0].text, tc.want)
+		}
+	}
 }
 
 // TestCommandsLeave 验证 /leave：调用 LeaveService；无房反馈
@@ -434,8 +470,10 @@ func TestCommandsLeave(t *testing.T) {
 	if leave.called != 1 || leave.actor != 1001 {
 		t.Fatalf("Leave 调用 = (%d, %d), want (1, 1001)", leave.called, leave.actor)
 	}
-	if len(sender.sent) != 1 || !strings.Contains(sender.sent[0].text, "退出") {
-		t.Errorf("退出回复 = %q, want commands.leave_done", sender.sent[0].text)
+	// 缺陷回归（红测，#27 重复消息同类）：/leave 成功后命令面不再发送
+	// commands.leave_done（退出确认由领域 lobby.left 承担，避免同语义双发）。
+	if len(sender.sent) != 0 {
+		t.Errorf("/leave 成功不应发命令面 leave_done，实际 %d 条: %+v", len(sender.sent), sender.sent)
 	}
 
 	sender.sent = nil

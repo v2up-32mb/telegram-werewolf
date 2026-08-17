@@ -59,6 +59,10 @@ func runServe(ctx context.Context, args []string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	wiring, err := app.NewWiring(ctx, cfg, logger)
+	if err != nil {
+		return fmt.Errorf("werewolf serve: wiring: %w", err)
+	}
 
 	// Build 可能因 Telegram getMe 网络握手等待较久；放在 goroutine 中，
 	// 启动阶段收到 SIGTERM/SIGINT 时直接优雅返回，不阻塞停机。
@@ -68,7 +72,7 @@ func runServe(ctx context.Context, args []string, stderr io.Writer) error {
 	}
 	buildCh := make(chan buildResult, 1)
 	go func() {
-		instance, err := app.Build(ctx, cfg, app.WithLogger(logger))
+		instance, err := app.Build(ctx, cfg, app.WithLogger(logger), app.WithWiring(wiring))
 		buildCh <- buildResult{instance: instance, err: err}
 	}()
 	select {

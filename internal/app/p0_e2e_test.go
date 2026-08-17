@@ -229,11 +229,12 @@ func TestP0EndToEnd(t *testing.T) {
 	}
 
 	// ---------- 6) 无身份泄漏汇总断言 ----------
-	// host 聊天只出现过 host 类消息 key（created/panel/reminder/expired）
+	// host 聊天只出现过 host 类消息 key（panel/reminder/expired；
+	// 建房确认由命令面承担，领域层不再产出 created 文案，Task 46 冒烟修复）
 	for _, m := range w.allAudited() {
 		switch m.msg.ChatID {
 		case outbox.ChatID(host):
-			if m.key != game.CreateRoomMessageKey && m.key != game.LobbyPanelMessageKey &&
+			if m.key != game.LobbyPanelMessageKey &&
 				m.key != game.IdleReminderMessageKey && m.key != game.RoomExpiredMessageKey {
 				t.Fatalf("host 聊天出现非 host 类消息 %q: %+v", m.key, m.msg)
 			}

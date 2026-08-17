@@ -20,23 +20,23 @@ import (
 
 // 命令回复的 i18n 文案 key（active.zh-CN.yaml）。
 const (
-	CommandMenuMessageKey          = "menu.main"
-	CommandHelpMessageKey          = "help.commands"
-	CommandRulesMessageKey         = "rules.intro"
-	CommandSelfDestructMessageKey  = "speech.self_destruct_hint"
-	CommandRankMessageKey          = "rank.placeholder"
-	CommandRoleMessageKey          = "commands.role"
-	CommandScoreMessageKey         = "commands.score"
-	CommandPrivateOnlyMessageKey   = "commands.private_only"
-	CommandNoRoomMessageKey        = "commands.no_room"
-	CommandDeadMessageKey          = "commands.dead"
-	CommandNoRoleYetMessageKey     = "commands.no_role_yet"
-	CommandAlreadyInRoomMessageKey = "commands.already_in_room"
-	CommandRoomFullMessageKey      = "commands.room_full"
-	CommandWrongPasswordMessageKey = "commands.wrong_password"
-	CommandNewGameDoneMessageKey   = "commands.newgame_done"
-	CommandJoinDoneMessageKey      = "commands.join_done"
-	CommandLeaveDoneMessageKey     = "commands.leave_done"
+	CommandMenuMessageKey            = "menu.main"
+	CommandHelpMessageKey            = "help.commands"
+	CommandRulesMessageKey           = "rules.intro"
+	CommandSelfDestructMessageKey    = "speech.self_destruct_hint"
+	CommandRankMessageKey            = "rank.placeholder"
+	CommandRoleMessageKey            = "commands.role"
+	CommandScoreMessageKey           = "commands.score"
+	CommandPrivateOnlyMessageKey     = "commands.private_only"
+	CommandNoRoomMessageKey          = "commands.no_room"
+	CommandDeadMessageKey            = "commands.dead"
+	CommandNoRoleYetMessageKey       = "commands.no_role_yet"
+	CommandAlreadyInRoomMessageKey   = "commands.already_in_room"
+	CommandRoomFullMessageKey        = "commands.room_full"
+	CommandWrongPasswordMessageKey   = "commands.wrong_password"
+	CommandRoomNotFoundMessageKey    = "commands.room_not_found"
+	CommandInvalidRoomCodeMessageKey = "commands.invalid_room_code"
+	CommandNewGameDoneMessageKey     = "commands.newgame_done"
 )
 
 // RoleReply 是 /role 的查询结果：角色与阵营的中文展示名由接线层从
@@ -159,10 +159,17 @@ func (h *CommandsHandler) handleNewGame(ctx context.Context, in CommandInput, cm
 	}
 	parsed.CommandID = in.CommandID
 	parsed.Actor = in.Actor
-	if _, _, err := h.create.CreateRoom(ctx, parsed.Request()); err != nil {
+	st, _, err := h.create.CreateRoom(ctx, parsed.Request())
+	if err != nil {
 		return h.replyFeedback(ctx, in, err)
 	}
-	return h.reply(ctx, in.ChatID, CommandNewGameDoneMessageKey, nil)
+	// 创建确认必须带房间码参数：由 Renderer 对 {{.RoomCode}} 做
+	// MarkdownV2 转义（Task 46 冒烟缺陷：旧模板字面 `<房间码>` 未
+	// 转义，真实 sendMessage 返回 400 "can't parse entities"，创建
+	// 确认被 Outbox 静默重试后丢弃）。
+	return h.reply(ctx, in.ChatID, CommandNewGameDoneMessageKey, map[string]any{
+		"RoomCode": string(st.RoomID),
+	})
 }
 
 // handleJoin 复用 FromJoinText 解析与 JoinInput.Request，单点调用加入
@@ -181,7 +188,9 @@ func (h *CommandsHandler) handleJoin(ctx context.Context, in CommandInput, cmd P
 	if _, _, err := h.join.Apply(ctx, req); err != nil {
 		return h.replyFeedback(ctx, in, err)
 	}
-	return h.reply(ctx, in.ChatID, CommandJoinDoneMessageKey, nil)
+	// 成功不重复回复命令面确认：加入确认由领域 join.confirmed（含昵称/
+	// 座位）承担，避免 #27 同语义双发（Task 46 冒烟缺陷修复）。
+	return nil
 }
 
 // handleRole 查询身份视图并渲染；错误在适配层映射为状态反馈文案。
@@ -207,12 +216,14 @@ func (h *CommandsHandler) handleScore(ctx context.Context, in CommandInput) erro
 	})
 }
 
-// handleLeave 调用退出服务；成功回复 commands.leave_done。
+// handleLeave 调用退出服务；成功不重复回复命令面确认——退出确认由
+// 领域 lobby.left（含房间码）承担，避免 #27 同语义双发（Task 46 冒烟：
+// /leave 真实环境发过 leave_done + lobby.left 两条重复文案）。
 func (h *CommandsHandler) handleLeave(ctx context.Context, in CommandInput) error {
 	if _, err := h.leave.Leave(ctx, in.Actor, in.CommandID); err != nil {
 		return h.replyFeedback(ctx, in, err)
 	}
-	return h.reply(ctx, in.ChatID, CommandLeaveDoneMessageKey, nil)
+	return nil
 }
 
 // reply 渲染一条回复并发送；参数由 Renderer 默认 MarkdownV2 转义。
@@ -244,6 +255,14 @@ func (h *CommandsHandler) replyFeedback(ctx context.Context, in CommandInput, er
 		key = CommandNoRoleYetMessageKey
 	case errors.Is(err, game.ErrHostInRoom):
 		key = CommandAlreadyInRoomMessageKey
+	case errors.Is(err, game.ErrAlreadyInRoom), errors.Is(err, game.ErrUserInRoom):
+		// 重复加入本房 / 已在其他进行中房间：明确「已在房间」反馈
+		//（Task 46 S7：此前未映射落入 error.generic）。
+		key = CommandAlreadyInRoomMessageKey
+	case errors.Is(err, game.ErrRoomNotFound), errors.Is(err, game.ErrRoomExpired):
+		key = CommandRoomNotFoundMessageKey
+	case errors.Is(err, game.ErrInvalidRoomCode):
+		key = CommandInvalidRoomCodeMessageKey
 	case errors.Is(err, game.ErrRoomFull):
 		key = CommandRoomFullMessageKey
 	case errors.Is(err, game.ErrWrongPassword):

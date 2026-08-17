@@ -177,3 +177,26 @@ func TestLoadInvalidDuration(t *testing.T) {
 		t.Errorf("错误 %q 缺少非法时长值 not-a-duration", err.Error())
 	}
 }
+
+// TestLoadBotAPIBaseURLFromEnv 是缺陷回归（红测）：生产必须支持自定义
+// Bot API 基址（Task 46 无代理直连 tg-api.510222.xyz）——此前配置无该
+// 字段，TELEGRAM_BOT_API_BASE_URL 被忽略，bot 只能走默认 api.telegram.org
+// 并经系统代理长轮询（代理挂起导致收不到更新）。
+func TestLoadBotAPIBaseURLFromEnv(t *testing.T) {
+	lookup := func(key string) (string, bool) {
+		if key == EnvBotToken {
+			return "token-from-env", true
+		}
+		if key == EnvBotAPIBaseURL {
+			return "https://tg-api.510222.xyz", true
+		}
+		return "", false
+	}
+	cfg, err := Load("", lookup)
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+	if cfg.BotAPIBaseURL != "https://tg-api.510222.xyz" {
+		t.Errorf("BotAPIBaseURL = %q, want https://tg-api.510222.xyz（env 覆盖）", cfg.BotAPIBaseURL)
+	}
+}

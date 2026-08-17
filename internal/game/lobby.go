@@ -63,7 +63,8 @@ func isZeroConfig(c GameConfig) bool {
 //  2. 房间码：自定义码规范化（大写）并保留唯一性，占用即明确拒绝；
 //     随机码生成且碰撞重试直至唯一；
 //  3. 状态：房主自动占 1 席且座位固定为 1（HostSeat）；
-//  4. 副作用：房主确认消息 + 最小活跃局记录。
+//  4. 副作用：最小活跃局记录（创建确认/房间面板由命令面与接线层承担，
+//     领域层只返回 PersistEffect，docs/测试验收清单.md Task 46 S3）。
 //
 // 任一拒绝都返回明确错误且不产生部分状态或 Effects。
 func (s LobbyService) CreateRoom(ctx context.Context, req CreateRoomRequest) (State, []Effect, error) {
@@ -93,15 +94,10 @@ func (s LobbyService) CreateRoom(ctx context.Context, req CreateRoomRequest) (St
 		Processed:    map[string]bool{req.CommandID: true},
 	}
 
-	msg, err := NewMessageEffect(AudienceHost, CreateRoomMessageKey, map[string]any{
-		"room_code":    string(code),
-		"host_seat":    HostSeat,
-		"player_count": cfg.PlayerCount,
-	})
-	if err != nil {
-		return State{}, nil, fmt.Errorf("game: create room message: %w", err)
-	}
-	return st, []Effect{msg, PersistEffect{Kind: PersistActiveGame}}, nil
+	// 创建确认由命令面 commands.newgame_done 承担、房间面板由接线层
+	// 推送（Task 46 冒烟修复：领域层不再产出 lobby.created 文案 effect，
+	// 避免同一次 /newgame 连发三条消息与缺失文案的 und 渲染错误）。
+	return st, []Effect{PersistEffect{Kind: PersistActiveGame}}, nil
 }
 
 // allocateCode 决定房间码：

@@ -45,6 +45,8 @@ type Options struct {
 	AbortScanner   AbortScanner
 	AbortNotifier  AbortNotifier
 	CommandHandler CommandHandler
+	TextHandler    TextHandler
+	Wiring         *Wiring
 }
 
 // Option 配置 Build。
@@ -89,6 +91,20 @@ func WithAbortNotifier(n AbortNotifier) Option {
 // WithCommandHandler 注入命令消费 seam（默认记日志占位）。
 func WithCommandHandler(h CommandHandler) Option {
 	return func(o *Options) { o.CommandHandler = h }
+}
+
+// WithTextHandler 注入玩家文本命令处理器：非 nil 时 App 对消息类
+// Update 先走 DispatchText（保持 update_id 去重与 ACK），把原始文本
+// 交给接线层（Task 41 命令面）解析；nil 时维持原 Router 文本路由。
+func WithTextHandler(h TextHandler) Option {
+	return func(o *Options) { o.TextHandler = h }
+}
+
+// WithWiring 注入生产接线组件：装配时把真实发送器、命令处理与文本
+// 处理接入 Outbox/Router 链路。显式 WithOutboxSender / WithCommandHandler
+// 优先级更高；Wiring nil 时维持默认 stub 语义（既有测试不受影响）。
+func WithWiring(w *Wiring) Option {
+	return func(o *Options) { o.Wiring = w }
 }
 
 // sqliteCursorStore 把 Task 13 sqlc 游标查询适配为 telegram.CursorStore：
@@ -253,9 +269,32 @@ func Build(ctx context.Context, cfg *config.Config, opts ...Option) (*App, error
 		MaxRetries:    cfg.Outbox.MaxRetries,
 		RetryInterval: cfg.Outbox.RetryInterval.Duration,
 	}, nil)
-	scheduler := outbox.NewScheduler(retrying.Send, defaultOutboxQueueCapacity)
+	scheduler := outbox.NewScheduler(retrying.Send, defaultOutboxQueueCapacity,
+		// 发送失败不再静默丢弃（Task 46 冒烟缺陷）：记录房间/会话/操作与
+		// 错误类别，不打印 Payload 全文（日志脱敏，docs/测试验收清单.md S16）。
+		outbox.WithSendErrorHandler(func(msg outbox.Message, err error) {
+			log.Error("app: outbox send failed", "room", string(msg.RoomID), "chat", int64(msg.ChatID), "op", msg.Operation, "error", err)
+		}),
+	)
 	coalescer := outbox.NewCoalescer()
 	log.Info("app: build", "step", "outbox")
+
+	// 生产接线（Task 46 缺陷修复）：Attach 注入真实发送器与命令/文本
+	// 处理器；显式 Option 优先于 Wiring 默认。
+	if o.Wiring != nil {
+		if err := o.Wiring.Attach(db, scheduler); err != nil {
+			return nil, fmt.Errorf("app: attach wiring: %w", err)
+		}
+		if o.OutboxSender == nil {
+			baseSend = o.Wiring.OutboxSender()
+		}
+		if o.CommandHandler == nil {
+			o.CommandHandler = o.Wiring.CommandHandler()
+		}
+		if o.TextHandler == nil {
+			o.TextHandler = o.Wiring.TextHandler()
+		}
+	}
 
 	// Room Manager：MVP 先用内存注册表（storage 唯一约束 Registry 适配属后续任务）。
 	// clock/reducer 是 CreateRoom 时的房间创建期参数，由后续 P0 命令 handler 注入。
@@ -271,7 +310,7 @@ func Build(ctx context.Context, cfg *config.Config, opts ...Option) (*App, error
 	source := o.Source
 	if source == nil {
 		var err error
-		source, err = telegram.NewLongPollingSource(cfg.BotToken, initialOffset)
+		source, err = telegram.NewLongPollingSource(cfg.BotToken, initialOffset, telegram.WithSourceServerURL(cfg.BotAPIBaseURL))
 		if err != nil {
 			return nil, fmt.Errorf("app: telegram source: %w", err)
 		}
@@ -282,6 +321,7 @@ func Build(ctx context.Context, cfg *config.Config, opts ...Option) (*App, error
 	if handler == nil {
 		handler = defaultCommandHandler{log: log}
 	}
+
 	scanner := o.AbortScanner
 	if scanner == nil {
 		scanner = defaultAbortScanner{repo: storage.NewRoomRepository(db)}
@@ -304,6 +344,7 @@ func Build(ctx context.Context, cfg *config.Config, opts ...Option) (*App, error
 		scanner:   scanner,
 		notifier:  notifier,
 		handler:   handler,
+		text:      o.TextHandler,
 	}
 	a.migrated.Store(true)
 

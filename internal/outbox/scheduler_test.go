@@ -244,3 +244,35 @@ func TestSchedulerConcurrentEnqueueCloseNoLoss(t *testing.T) {
 		t.Fatalf("sent=%d enqueued=%d：成功入队的消息必须全部被发送（无滞留/静默丢失）", got, want)
 	}
 }
+
+// TestSchedulerReportsSendErrors 是缺陷回归（红测）：worker 不得静默丢弃
+// 发送错误——装配 WithSendErrorHandler 后，失败消息必须上报给回调
+// （Task 46 冒烟：newgame 创建确认被 400 静默重试丢弃时没有任何日志）。
+func TestSchedulerReportsSendErrors(t *testing.T) {
+	boom := errors.New("boom")
+	got := make(chan struct {
+		msg Message
+		err error
+	}, 4)
+	s := NewScheduler(func(ctx context.Context, msg Message) error { return boom }, 4,
+		WithSendErrorHandler(func(m Message, err error) {
+			got <- struct {
+				msg Message
+				err error
+			}{m, err}
+		}),
+	)
+	t.Cleanup(func() { _ = s.Close(context.Background()) })
+
+	if err := s.Enqueue(Message{CorrelationID: "m1", ChatID: ChatID(1), Operation: "a"}); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	select {
+	case r := <-got:
+		if r.msg.CorrelationID != "m1" || !errors.Is(r.err, boom) {
+			t.Fatalf("reported = (%v, %v), want (m1, boom)", r.msg.CorrelationID, r.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("发送错误未上报给回调（worker 静默丢弃）")
+	}
+}

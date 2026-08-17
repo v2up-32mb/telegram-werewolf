@@ -194,6 +194,41 @@ func TestRenderErrorWithData(t *testing.T) {
 }
 
 // TestNewRendererUnsupportedLocale 验证 MVP 仅支持 zh-CN。
+// TestHelpTemplatesNoBareMarkdownSpecials 是缺陷回归（红测，Task 46）：
+// help/rules 模板字面不得含未转义的 MarkdownV2 保留字符（`<`/`>`/`+` 等），
+// 否则真实 sendMessage 返回 400 且回复被永久丢弃（serve.log 曾现
+// "outbox: permanent error: "）；转义工作由模板作者负责，渲染参数才
+// 由 Renderer 转义。
+func TestHelpTemplatesNoBareMarkdownSpecials(t *testing.T) {
+	r := newTestRenderer(t)
+	for _, key := range []string{"help.commands", "rules.intro", "speech.self_destruct_hint"} {
+		text, err := r.Render(key, nil)
+		if err != nil {
+			t.Fatalf("Render(%q): %v", key, err)
+		}
+		runes := []rune(text)
+		for i := 0; i < len(runes); i++ {
+			r := runes[i]
+			if r == '\\' {
+				// 转义符必须紧接保留字符组成有效转义对（\< \+ 等）；
+				// 否则（如孤立 \ 或 \x）也会被 Telegram 400 拒绝。
+				if i+1 < len(runes) && isMarkdownSpecial(runes[i+1]) {
+					i++
+					continue
+				}
+				t.Errorf("%s 模板含无效转义（反斜杠后非保留字符），文本: %q", key, text)
+			} else if isMarkdownSpecial(r) {
+				t.Errorf("%s 模板含未转义 MarkdownV2 保留字符 %q，文本: %q", key, string(r), text)
+			}
+		}
+	}
+}
+
+// isMarkdownSpecial 报告 r 是否为 MarkdownV2 必须转义的保留字符。
+func isMarkdownSpecial(r rune) bool {
+	return strings.ContainsRune("_*[]()~`>#+-=|{}.!\\", r)
+}
+
 func TestNewRendererUnsupportedLocale(t *testing.T) {
 	if _, err := NewRenderer("en-US"); err == nil {
 		t.Fatal("NewRenderer(en-US) = nil error, want error")

@@ -517,7 +517,14 @@ func (w *p0World) createRoom(host game.UserID, commandID, code string) (game.Sta
 	now := w.clock.Now()
 	w.lives[st.RoomID] = game.LobbyLifetime{CreatedAt: now, ExpireAt: now.Add(game.IdleExpireAfter)}
 	w.states[st.RoomID] = st
-	if err := w.applyEffects(st.RoomID, host, effects); err != nil {
+	// 建房面板：创建确认由命令面 commands.newgame_done 承担（Task 46
+	// 冒烟修复：领域层 CreateRoom 不再产出 lobby.created），本 harness
+	// 模拟生产适配器行为——建房后只投递房间面板一条。
+	panel, err := game.NewMessageEffect(game.AudienceHost, game.LobbyPanelMessageKey, map[string]any{"room_code": string(st.RoomID)})
+	if err != nil {
+		return game.State{}, fmt.Errorf("panel effect: %w", err)
+	}
+	if err := w.applyEffects(st.RoomID, host, append(effects, panel)); err != nil {
 		return game.State{}, err
 	}
 	return st, nil
@@ -694,14 +701,13 @@ func (w *p0World) advance(d time.Duration) { w.clock.advance(d) }
 // ---------------------------------------------------------------------------
 
 // render 把 game.MessageEffect 渲染为 MarkdownV2 文本。
-// 模板为测试内固定文案（代替暂缺的 i18n lobby.* 资源，属于已知缺口），
+// 模板为测试内固定文案（代替暂缺的 i18n 面板类资源，属于已知缺口；
+// 建房确认由命令面承担，领域层不再产出 lobby.created），
 // 所有用户输入（昵称/房间码参数）经 EscapeMarkdownV2 转义；未知 key 报错。
 func (w *p0World) render(e game.MessageEffect, st game.State) (string, error) {
 	code := paramString(e.Params, "room_code", string(st.RoomID))
 	esc := i18n.EscapeMarkdownV2
 	switch e.Key {
-	case game.CreateRoomMessageKey:
-		return fmt.Sprintf("房间已创建\n房间码：%s\n人数：1/%d", esc(code), game.MVPPlayerCount), nil
 	case game.JoinConfirmedMessageKey:
 		nick := i18n.EscapeMarkdownV2(paramString(e.Params, "nickname", ""))
 		seat := paramString(e.Params, "seat", "")

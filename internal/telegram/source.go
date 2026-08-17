@@ -69,6 +69,12 @@ func NewLongPollingSource(token string, initialOffset int64, opts ...SourceOptio
 	}
 	// 源层错误（如 409 双实例冲突）经 WithErrorsHandler 进入 Errors 流。
 	botOpts = append(botOpts, bot.WithErrorsHandler(func(err error) {
+		if err == nil {
+			// 库内部偶发把 nil 错误交给 handler（长轮询网络抖动路径）；
+			// 空错误不代表业务事件，直接忽略，避免 Errors 流中出现
+			// 无法分类的 nil 噪声。
+			return
+		}
 		select {
 		case s.errors <- wrapTelegramError(err):
 		default:

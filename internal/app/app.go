@@ -43,6 +43,13 @@ type AbortNotifier interface {
 	NotifyAbort(ctx context.Context, room AbortedRoom) error
 }
 
+// TextHandler 是消息类 Update 的文本命令消费边界：与 CommandHandler
+// 同级 seam，但接收原始 Update（保留命令文本与 ChatID/私聊标记），
+// 供 Task 41 CommandsHandler 使用。两者由接线层按 Update 类型互斥接管。
+type TextHandler interface {
+	HandleText(ctx context.Context, u telegram.Update) error
+}
+
 // CommandHandler 是 Update → 领域命令的消费边界。
 //
 // 玩法执行（建房、邀请、加入、大厅、发牌等）属阶段 P0，由后续任务在
@@ -67,6 +74,7 @@ type App struct {
 	scanner   AbortScanner
 	notifier  AbortNotifier
 	handler   CommandHandler
+	text      TextHandler
 
 	sourceCancel context.CancelFunc
 
@@ -167,6 +175,10 @@ func (a *App) consumeUpdates(ctx context.Context) {
 			if !ok {
 				return
 			}
+			if err == nil {
+				// 源层空错误（库长轮询抖动）：忽略，不记 ERROR。
+				continue
+			}
 			if errors.Is(err, telegram.ErrConflict) {
 				a.conflict.Store(true)
 				a.log.Error("app: telegram 409 conflict", "error", err)
@@ -189,6 +201,15 @@ func (a *App) consumeUpdates(ctx context.Context) {
 func (a *App) dispatchUpdate(ctx context.Context, u telegram.Update) error {
 	if !a.commandsOpen.Load() {
 		return errors.New("app: not accepting commands (stopping)")
+	}
+	if a.text != nil && u.Message != nil {
+		// 文本命令：接线层自持解析（Task 41 命令面），保持去重/ACK 语义。
+		return a.router.DispatchText(ctx, u, func(ctx context.Context, up telegram.Update) error {
+			if !a.commandsOpen.Load() {
+				return errors.New("app: not accepting commands (stopping)")
+			}
+			return a.text.HandleText(ctx, up)
+		})
 	}
 	return a.router.Dispatch(ctx, u, func(ctx context.Context, cmd game.Command) error {
 		if !a.commandsOpen.Load() {
