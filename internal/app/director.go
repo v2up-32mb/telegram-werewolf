@@ -186,7 +186,9 @@ func (d *roomDirector) startDay(st game.State) (game.State, []game.Effect, bool,
 	return st3, append(fx1, control...), true, nil
 }
 
-// armSpeechTimer 为当前发言者安排固定限时超时（docs「固定限时」）。
+// armSpeechTimer 为当前发言者安排限时（docs「固定限时」/设计Q&A Q3）：
+// 固定限时到期移交下一位；软限时到期只提醒一次（speech.time_left），由玩家
+// 自行点「结束发言」结束。
 func (d *roomDirector) armSpeechTimer(roomID game.RoomID, st game.State) {
 	dr := d.room(roomID)
 	if dr.speech == nil || dr.speech.timer != nil {
@@ -196,9 +198,41 @@ func (d *roomDirector) armSpeechTimer(roomID game.RoomID, st game.State) {
 	if speechSec <= 0 {
 		speechSec = game.DefaultSpeechSeconds
 	}
+	if st.Settings.SpeechMode == game.SpeechSoft {
+		dr.speech.timer = time.AfterFunc(time.Duration(speechSec)*time.Second, func() {
+			d.softSpeechReminder(roomID)
+		})
+		return
+	}
 	dr.speech.timer = time.AfterFunc(time.Duration(speechSec)*time.Second, func() {
 		d.speechTimeout(roomID)
 	})
+}
+
+// softSpeechReminder 在软限时到期时提醒当前发言者但不强制打断。
+func (d *roomDirector) softSpeechReminder(roomID game.RoomID) {
+	dr := d.room(roomID)
+	if dr.actor == nil {
+		return
+	}
+	if _, err := dr.actor.DispatchLocal(context.Background(), remindSpeechFn(roomID, dr)); err != nil {
+		d.w.log.Warn("app: soft speech reminder", "room", string(roomID), "error", err)
+	}
+}
+
+// remindSpeechFn 构造软限时提醒的本地推进：当前发言者收到 speech.time_left。
+func remindSpeechFn(roomID game.RoomID, dr *dirRoom) room.LocalFunc {
+	return func(st game.State) (game.State, []game.Effect, error) {
+		if st.Phase != game.PhaseDaySpeech || dr.speech == nil || dr.speech.idx >= len(dr.speech.order) {
+			return st, nil, nil
+		}
+		seat := dr.speech.order[dr.speech.idx]
+		msg, err := game.SpeechTimeLeft(seat)
+		if err != nil {
+			return st, nil, err
+		}
+		return st, []game.Effect{msg}, nil
+	}
 }
 
 // speechTimeout 是发言超时（真实 timer 或测试直接调用）：移交下一位/结束白天。
