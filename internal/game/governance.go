@@ -321,7 +321,7 @@ func (r reducer) settleGovernanceKick(st State, base []Effect) (State, []Effect,
 	}
 	effects = append(effects,
 		passed,
-		CooldownEffect{Duration: LeaveCooldown, Reason: LeaveReasonVoteKicked},
+		CooldownEffect{User: playerBySeat(st.Players, target).UserID, Duration: LeaveCooldown, Reason: LeaveReasonVoteKicked},
 		PersistEffect{Kind: PersistGameLeave},
 	)
 	st.Governance.KickVotes = map[Seat]bool{}

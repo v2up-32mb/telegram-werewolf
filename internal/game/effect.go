@@ -142,9 +142,11 @@ func (EventEffect) effect() {}
 
 // CooldownEffect 表示跨局加入冷却副作用（docs 游戏流程设计.md §退出约束：
 // 存活主动退出/连续 3 次超时强制移除/投票踢出触发 10 分钟冷却，冷却期间
-// 不能创建或加入房间）。game 核心只表达领域契约（时长 + 原因），持久化与
-// 创建/加入拦截属接线/存储层（docs/技术选型.md §5.1：纯核心不触碰 SQLite）。
+// 不能创建或加入房间）。game 核心只表达领域契约（受影响用户 + 时长 + 原因），
+// 持久化与「冷却期间不能创建/加入房间」的跨局拦截属接线/存储层
+// （docs/技术选型.md §5.1：纯核心不触碰 SQLite）。
 type CooldownEffect struct {
+	User     UserID
 	Duration time.Duration
 	Reason   LeaveReason
 }

@@ -127,7 +127,7 @@ func (w *Wiring) Attach(db *sql.DB, outbox *outbox.Scheduler) error {
 	}
 
 	createA := createRoomAdapter{lobby: lobby, reg: w.reg, repo: w.repo, users: w.users, now: w.now}
-	joinA := joinRoomAdapter{join: join, reg: w.reg}
+	joinA := joinRoomAdapter{join: join, reg: w.reg, users: w.users, now: w.now}
 	leaveA := leaveServiceAdapter{life: life, reg: w.reg, repo: w.repo}
 	rolesA := roleServiceAdapter{reg: w.reg}
 	scoresA := scoreServiceAdapter{db: db}
@@ -736,6 +736,10 @@ type createRoomAdapter struct {
 }
 
 func (a createRoomAdapter) CreateRoom(ctx context.Context, req game.CreateRoomRequest) (game.State, []game.Effect, error) {
+	// I2：冷却期间不能创建新房间（docs 游戏流程设计.md §退出约束）。
+	if until, err := a.users.CooldownUntil(ctx, req.Host); err == nil && until.After(a.now()) {
+		return game.State{}, nil, game.ErrCooldownActive
+	}
 	st, fx, err := a.lobby.CreateRoom(ctx, req)
 	if err != nil {
 		return st, nil, err
@@ -764,11 +768,17 @@ func (a createRoomAdapter) CreateRoom(ctx context.Context, req game.CreateRoomRe
 // joinRoomAdapter 包装 game.JoinService：成功后同步注册表并把服务
 // effects（加入确认 + 房主面板）放进待发桥。
 type joinRoomAdapter struct {
-	join game.JoinService
-	reg  *liveRegistry
+	join  game.JoinService
+	reg   *liveRegistry
+	users *storage.UserRepository
+	now   func() time.Time
 }
 
 func (a joinRoomAdapter) Apply(ctx context.Context, req game.JoinRequest) (game.JoinResult, []game.Effect, error) {
+	// I2：冷却期间不能加入其他房间（docs 游戏流程设计.md §退出约束）。
+	if until, err := a.users.CooldownUntil(ctx, req.Actor); err == nil && until.After(a.now()) {
+		return game.JoinResult{}, nil, game.ErrCooldownActive
+	}
 	res, fx, err := a.join.Apply(ctx, req)
 	if err != nil {
 		return res, nil, err

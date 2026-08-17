@@ -20,4 +20,7 @@ var (
 	ErrUnknownCommand = errors.New("game: unknown command type")
 	// ErrNotImplemented 表示当前阶段 reducer 尚未实现（骨架阶段）。
 	ErrNotImplemented = errors.New("game: reducer not implemented for this phase")
+	// ErrCooldownActive 表示用户处于跨局加入冷却（docs §退出约束：冷却期间
+	// 不能创建或加入房间）。
+	ErrCooldownActive = errors.New("game: user is in cross-game join cooldown")
 )

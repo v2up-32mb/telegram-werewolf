@@ -267,6 +267,8 @@ func (h *CommandsHandler) replyFeedback(ctx context.Context, in CommandInput, er
 		key = CommandRoomFullMessageKey
 	case errors.Is(err, game.ErrWrongPassword):
 		key = CommandWrongPasswordMessageKey
+	case errors.Is(err, game.ErrCooldownActive):
+		key = "commands.cooldown"
 	}
 	return h.reply(ctx, in.ChatID, key, nil)
 }

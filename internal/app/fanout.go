@@ -285,10 +285,17 @@ func (w *Wiring) dissolveRoom(roomID game.RoomID, _ game.DissolveReason) {
 	w.director.release(roomID)
 }
 
-// applyCooldown 落地跨局加入冷却（I2：写入 users.cooldown_until；持久化列
-// 在迁移 000004 添加后启用；本阶段先记录契约）。
-func (w *Wiring) applyCooldown(roomID game.RoomID, e game.CooldownEffect) {
-	w.log.Debug("app: cooldown effect (I2 pending)", "room", string(roomID), "reason", e.Reason, "duration", e.Duration)
+// applyCooldown 落地跨局加入冷却（I2：写 users.cooldown_until，docs
+// 游戏流程设计.md §退出约束 10 分钟）。
+func (w *Wiring) applyCooldown(_ game.RoomID, e game.CooldownEffect) {
+	if e.User == 0 {
+		return
+	}
+	if err := w.users.SetCooldown(context.Background(), e.User, w.now().Add(e.Duration)); err != nil {
+		w.log.Warn("app: set cooldown", "user", int64(e.User), "reason", e.Reason, "error", err)
+		return
+	}
+	w.log.Info("app: cooldown set", "user", int64(e.User), "reason", e.Reason, "duration", e.Duration)
 }
 
 // applyScorePenalty 落地积分扣减（I2/I3：房主强制解散 -10）。

@@ -100,7 +100,7 @@ func (r reducer) leaveGame(st State, cmd LeaveGameCommand) (State, []Effect, err
 		after.Processed[cmd.Meta.ID] = true
 		markPlayerLeft(after.Players, seat)
 		effects = append(effects,
-			CooldownEffect{Duration: LeaveCooldown, Reason: LeaveReasonWolfExplode},
+			CooldownEffect{User: cmd.Meta.Actor, Duration: LeaveCooldown, Reason: LeaveReasonWolfExplode},
 			PersistEffect{Kind: PersistGameLeave},
 		)
 		return after, effects, nil
@@ -122,7 +122,7 @@ func (r reducer) leaveGame(st State, cmd LeaveGameCommand) (State, []Effect, err
 	}
 	effects := []Effect{
 		ann,
-		CooldownEffect{Duration: LeaveCooldown, Reason: reason},
+		CooldownEffect{User: cmd.Meta.Actor, Duration: LeaveCooldown, Reason: reason},
 		PersistEffect{Kind: PersistGameLeave},
 	}
 	return next, effects, nil
@@ -209,7 +209,7 @@ func (r reducer) advanceTimeoutStreaks(st State, at time.Time, unresponsive []Se
 			}
 			effects = append(effects,
 				removed,
-				CooldownEffect{Duration: LeaveCooldown, Reason: LeaveReasonForcedTimeout},
+				CooldownEffect{User: p.UserID, Duration: LeaveCooldown, Reason: LeaveReasonForcedTimeout},
 				PersistEffect{Kind: PersistGameLeave},
 			)
 		}
