@@ -36,6 +36,7 @@ type roomDirector struct {
 type dirRoom struct {
 	actor        *room.Actor
 	night        int
+	lastPeriod   string // 当前时间段主消息标识（"night.N"/"day.D"，Item 1）
 	wolfStarted  bool
 	witchStarted bool
 	seerStarted  bool
@@ -112,12 +113,16 @@ func (d *roomDirector) pump(roomID game.RoomID, st game.State) (game.State, []ga
 	case game.PhaseNight:
 		if !dr.wolfStarted {
 			dr.wolfStarted = true
+			dr.night++
+			dr.lastPeriod = fmt.Sprintf("night.%d", dr.night)
 			next, fx, err := game.BeginWolfPhase(st)
 			return next, fx, true, err
 		}
 		if dr.wolfStarted && !dr.witchStarted && st.Night.WolfRound == 0 &&
 			st.Night.WitchStage == game.WitchStageClosed && !st.Night.SeerActive {
 			dr.witchStarted = true
+			// 首夜判定：dr.night 在夜开始时已置 1 → 第 1 夜 firstNight=true
+			//（docs「自救仅首夜可选」）。
 			next, fx, err := game.BeginWitchPhase(st, dr.night == 1)
 			if witchRoleDead(next) {
 				// I5：死亡神职阶段仍开启但按原时长 2/3 假等待（docs §夜间 6
@@ -142,7 +147,7 @@ func (d *roomDirector) pump(roomID game.RoomID, st game.State) (game.State, []ga
 				return st, nil, false, err
 			}
 			dr.victims, dr.cause = diffDeaths(before, next)
-			dr.night++
+			// lastPeriod 保持 "night.N"：resolve 批次（夜死讯/胜利）写入该夜主消息。
 			dr.wolfStarted, dr.witchStarted, dr.seerStarted = false, false, false
 			dr.dayStarted = false
 			dr.speech = nil
@@ -166,6 +171,7 @@ func (d *roomDirector) pump(roomID game.RoomID, st game.State) (game.State, []ga
 func (d *roomDirector) startDay(st game.State) (game.State, []game.Effect, bool, error) {
 	dr := d.room(st.RoomID)
 	dr.day++
+	dr.lastPeriod = fmt.Sprintf("day.%d", dr.day)
 	out := game.DayOutcome{Victims: dr.victims, Cause: dr.cause}
 	st2, fx1, err := game.DayStart(st, out)
 	if err != nil {

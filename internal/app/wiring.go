@@ -72,6 +72,20 @@ type Wiring struct {
 	director *roomDirector
 	// life 是大厅生命周期服务（闲置回收评估，I7）。
 	life game.LobbyLifecycleService
+
+	// 主消息滚动编辑（Item 1：docs 阶段消息设计.md §3/§4）。
+	// viewer 追踪每 Chat 每时间段主消息页（3000 字符软分页）；mainBody 保存
+	// 当前页累计正文（供编辑）；mainMsgID 记录已发送的消息 ID（productionSend
+	// 回填，供下一次编辑复用）。
+	viewer    *telegram.Viewer
+	mainBody  map[mainPeriodKey]string
+	mainMsgID map[mainPeriodKey]int64
+}
+
+// mainPeriodKey 标识一个 Chat 的某个时间段主消息。
+type mainPeriodKey struct {
+	chat   int64
+	period string
 }
 
 // NewWiring 创建生产接线（此时不触网；Client 创建延后到首次发送时按需）。
@@ -109,6 +123,9 @@ func (w *Wiring) Attach(db *sql.DB, sched *outbox.Scheduler) error {
 	w.director = newDirector(w)
 	w.coalescer = outbox.NewCoalescer()
 	w.startCoalescerFlusher()
+	w.viewer = telegram.NewViewer()
+	w.mainBody = make(map[mainPeriodKey]string)
+	w.mainMsgID = make(map[mainPeriodKey]int64)
 
 	w.repo = storage.NewRoomRepository(db)
 	w.users = storage.NewUserRepository(db)
@@ -186,7 +203,8 @@ func (w *Wiring) TextHandler() TextHandler { return w.text }
 
 // productionSend 是 Outbox 底层发送器：断言 Payload 为 telegram.Params
 // 后按 Operation 经 Transport 分派（未知 op 返回明确错误，交由 Outbox
-// 重试策略处理）。
+// 重试策略处理）。带 Period 的主消息：send 后回填消息 ID，edit 复用该 ID
+// 实现同一时间段主消息滚动编辑（Item 1；docs 阶段消息设计.md §3/§4）。
 func (w *Wiring) productionSend(ctx context.Context, msg outbox.Message) error {
 	params, ok := msg.Payload.(telegram.Params)
 	if !ok {
@@ -196,12 +214,58 @@ func (w *Wiring) productionSend(ctx context.Context, msg outbox.Message) error {
 	if err != nil {
 		return err
 	}
+	if params.Period != "" {
+		return w.productionSendMain(ctx, client, msg, params)
+	}
 	tr := telegram.NewTransport(client)
 	if err := tr.Send(ctx, msg.Operation, params); err != nil {
 		return classifyTelegramError(msg, err)
 	}
 	w.log.Info("app: telegram sent", "op", msg.Operation, "chat", int64(msg.ChatID), "summary", summarize(params.Text))
 	return nil
+}
+
+// productionSendMain 处理主消息 send->edit 滚动：send 回填 ID，edit 复用
+// （同一 Chat 同一时间段 FIFO 保证 send 先于 edit 处理）。
+func (w *Wiring) productionSendMain(ctx context.Context, client telegram.Client, msg outbox.Message, params telegram.Params) error {
+	key := mainPeriodKey{params.ChatID, params.Period}
+	switch msg.Operation {
+	case telegram.OpSendText:
+		sent, err := client.SendMessage(ctx, telegram.SendMessageParams{
+			ChatID: params.ChatID, Text: params.Text, ParseMode: params.ParseMode,
+		})
+		if err != nil {
+			return classifyTelegramError(msg, err)
+		}
+		w.mainMsgID[key] = int64(sent.MessageID)
+		w.log.Info("app: main msg created", "chat", params.ChatID, "period", params.Period, "id", sent.MessageID)
+		return nil
+	case telegram.OpEditMessage:
+		id := w.mainMsgID[key]
+		if id == 0 {
+			// 防御：主消息尚未创建（不应发生）：退回 send，保证内容不丢。
+			sent, err := client.SendMessage(ctx, telegram.SendMessageParams{
+				ChatID: params.ChatID, Text: params.Text, ParseMode: params.ParseMode,
+			})
+			if err != nil {
+				return classifyTelegramError(msg, err)
+			}
+			w.mainMsgID[key] = int64(sent.MessageID)
+			return nil
+		}
+		if _, err := client.EditMessageText(ctx, telegram.EditMessageParams{
+			ChatID: params.ChatID, MessageID: int(id), Text: params.Text, ParseMode: params.ParseMode,
+		}); err != nil {
+			return classifyTelegramError(msg, err)
+		}
+		return nil
+	default:
+		tr := telegram.NewTransport(client)
+		if err := tr.Send(ctx, msg.Operation, params); err != nil {
+			return classifyTelegramError(msg, err)
+		}
+		return nil
+	}
 }
 
 // classifyTelegramError 把 Telegram 侧错误映射为 Outbox 重试语义：

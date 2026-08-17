@@ -187,6 +187,9 @@ func TestDirectorFullGameThroughWiring(t *testing.T) {
 	if st.Night.WitchStage != game.WitchStageSave {
 		t.Fatalf("女巫窗口未开启（导演 BeginWitchPhase），stage = %d", st.Night.WitchStage)
 	}
+	if !st.Night.WitchFirstNight {
+		t.Fatalf("N1 女巫 firstNight = false, want true（首夜自救可配置项基于首夜判定）")
+	}
 
 	// 女巫：不救 → 不用毒
 	b.click(b.userOf(witch), "witch_save", "no")

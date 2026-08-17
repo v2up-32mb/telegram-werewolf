@@ -47,6 +47,9 @@ type Params struct {
 	ShowAlert       bool
 	// ReplyMarkup 为 send_text/edit_message 的 inline keyboard（B1-c）。
 	ReplyMarkup *ReplyMarkup
+	// Period 标识主消息时间段（如 "night.1"；非空=主消息滚动编辑，接线层
+	// productionSend 负责同一 (chat, period) 的 send→edit 消息 ID 复用与分页）。
+	Period string
 	// ParseMode 为空时文本类消息默认 MarkdownV2。
 	ParseMode string
 }

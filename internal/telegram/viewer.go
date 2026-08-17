@@ -3,6 +3,8 @@ package telegram
 import (
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/v2up-32mb/telegram-werewolf/internal/outbox"
@@ -57,6 +59,29 @@ func (p Period) Valid() bool {
 // String 返回时间段短名（如 day.2 / night.1），用于日志与页引用。
 func (p Period) String() string {
 	return fmt.Sprintf("%s.%d", p.Kind, p.Number)
+}
+
+// ParsePeriod 解析 "night.1" / "day.2" 形式的时间段标识；非法返回 ok=false。
+func ParsePeriod(s string) (Period, bool) {
+	kindStr, numStr, ok := strings.Cut(s, ".")
+	if !ok {
+		return Period{}, false
+	}
+	num, err := strconv.Atoi(numStr)
+	if err != nil || num < 1 {
+		return Period{}, false
+	}
+	var kind PeriodKind
+	switch kindStr {
+	case "night":
+		kind = PeriodNight
+	case "day":
+		kind = PeriodDay
+	default:
+		return Period{}, false
+	}
+	p := Period{Kind: kind, Number: num}
+	return p, p.Valid()
 }
 
 // PageRef 是某 Chat 某时间段主消息的一个页引用。

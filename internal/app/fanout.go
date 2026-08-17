@@ -55,7 +55,56 @@ func (w *Wiring) fanOut(roomID game.RoomID, st game.State, fx []game.Effect) err
 	return nil
 }
 
-// fanOutMessage 把单条消息效果按受众分派到所有目标私聊，逐接收者渲染。
+// isMainMessageKey 报告效果是否写入「时间段主消息」（docs 阶段消息设计.md
+// §3/§16：死讯、投票明细/统计/结果、平票过程、重大事件、发言记录等）。
+func isMainMessageKey(key string) bool {
+	switch key {
+	case "phase.night.start", "night.death", "night.peace", "day.death", "day.peace",
+		"vote.detail", "vote.tally", "vote.result",
+		"tie.speech", "tie.runoff", "tie.no_speech", "tie.final",
+		"wolves.explode", "leave.malicious", "leave.removed",
+		"governance.dissolve.initiated", "governance.dissolve.passed",
+		"governance.kick.initiated", "governance.kick.passed",
+		"governance.host_dissolve.confirm", "governance.host_dissolve.passed",
+		"settlement.victory", "speech.accepted":
+		return true
+	}
+	return false
+}
+
+// appendMain 把一段进程文本追加到 (chat, period) 的时间段主消息：
+// 首次发送（OpSendText + Period），后续编辑同一条消息（OpEditMessage，
+// productionSend 复用消息 ID）；超 3000 字符经 Viewer 软分页创建续页
+// （docs §4.1：超过阈值照常发送并标记满，下一次更新创建续页，不复制旧页）。
+func (w *Wiring) appendMain(roomID game.RoomID, chat int64, period, text string) error {
+	key := mainPeriodKey{chat, period}
+	periodTok, ok := telegram.ParsePeriod(period)
+	if !ok {
+		return fmt.Errorf("app: invalid main period %q", period)
+	}
+	ref, created, err := w.viewer.Append(outbox.ChatID(chat), periodTok, text)
+	if err != nil {
+		// 时间段已定稿：回退为独立消息，保证内容不丢。
+		w.log.Warn("app: main append finalized fallback", "chat", chat, "period", period, "error", err)
+		return w.enqueue("fx:"+string(roomID), roomID, chat, telegram.OpSendText,
+			telegram.Params{ChatID: chat, Text: text}, outbox.PriorityNormal, "")
+	}
+	if created {
+		w.mainBody[key] = text // 新页（首页或续页）从本条开始，不复制旧页
+		return w.enqueue("fx:"+string(roomID), roomID, chat, telegram.OpSendText,
+			telegram.Params{ChatID: chat, Text: text, Period: period}, outbox.PriorityNormal, "")
+	}
+	w.mainBody[key] += "\n\n" + text
+	_ = ref
+	return w.enqueue("fx:"+string(roomID), roomID, chat, telegram.OpEditMessage,
+		telegram.Params{ChatID: chat, Text: w.mainBody[key], Period: period}, outbox.PriorityNormal, "")
+}
+
+// currentPeriod 返回导演当前时间段（"night.N"/"day.D"）；大厅/无期间返回空。
+func (d *roomDirector) currentPeriod(st game.State) string {
+	dr := d.room(st.RoomID)
+	return dr.lastPeriod
+}
 func (w *Wiring) fanOutMessage(roomID game.RoomID, st game.State, e game.MessageEffect) error {
 	// 发言原消息 3 秒自毁（docs 游戏流程设计.md §发言限制 2）：删除操作，
 	// 不经受众分派/渲染。
@@ -71,6 +120,24 @@ func (w *Wiring) fanOutMessage(roomID game.RoomID, st game.State, e game.Message
 	chats, err := w.audienceChats(e.Audience, st, e)
 	if err != nil {
 		return err
+	}
+	// 主消息（时间段滚动编辑，Item 1）：每条独立发送/追加到该时间段主消息页。
+	if isMainMessageKey(e.Key) {
+		period := w.director.currentPeriod(st)
+		if period == "" {
+			return fmt.Errorf("app: main message %q in phase %v without period", e.Key, st.Phase)
+		}
+		for _, chat := range chats {
+			v := viewerContext(st, game.UserID(chat))
+			text, err := w.renderGameEffect(e, st, v)
+			if err != nil {
+				return err
+			}
+			if err := w.appendMain(roomID, chat, period, text); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	for _, chat := range chats {
 		v := viewerContext(st, game.UserID(chat))
