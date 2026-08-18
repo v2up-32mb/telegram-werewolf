@@ -53,10 +53,15 @@ type Wiring struct {
 	// coalescer 对尚未发送的低优先级阶段更新按 (ChatID, CoalesceKey) 合并
 	//（I1b，docs 技术选型.md §7.1：面板刷新等滚动更新只保留最新版本）。
 	coalescer *outbox.Coalescer
-	reg       *liveRegistry
-	repo      *storage.RoomRepository
-	users     *storage.UserRepository
-	now       func() time.Time
+	// coalescerStop/coalescerDone 控制自动轮询 flusher 生命周期
+	//（stop 请求 → 退出 → done 关闭；测试与停机用）。
+	coalescerStop chan struct{}
+	coalescerDone chan struct{}
+	stopOnce      sync.Once
+	reg           *liveRegistry
+	repo          *storage.RoomRepository
+	users         *storage.UserRepository
+	now           func() time.Time
 
 	commands *telegram.CommandsHandler
 	handler  *callbackHandler
@@ -130,6 +135,8 @@ func (w *Wiring) Attach(db *sql.DB, sched *outbox.Scheduler) error {
 	w.tokens = telegram.NewCallbackManager(defaultCallbackTokenCapacity)
 	w.director = newDirector(w)
 	w.coalescer = outbox.NewCoalescer()
+	w.coalescerDone = make(chan struct{})
+	w.coalescerStop = make(chan struct{})
 	w.startCoalescerFlusher()
 	w.viewer = telegram.NewViewer()
 	w.mainBody = make(map[mainPeriodKey]string)
@@ -357,11 +364,19 @@ func (w *Wiring) enqueue(corr string, roomID game.RoomID, chat int64, op string,
 	return w.outbox.Enqueue(msg)
 }
 
-// startCoalescerFlusher 轮询把 Coalescer 待发消息送入 Scheduler（I1b）。
-// Scheduler 关闭（应用停机）时退出。
+// startCoalescerFlusher 启动自动轮询把 Coalescer 待发消息送入 Scheduler
+// （I1b，docs 技术选型.md §7.1）。生产默认使用；测试关闭它并走确定性
+// drainCoalesced，避免 20ms 轮询与断言窗口的竞争（2026-08-18 CI race job：
+// 5 条突发面板可能被轮询拆成两批 → 两次发送）。
 func (w *Wiring) startCoalescerFlusher() {
 	go func() {
+		defer close(w.coalescerDone)
 		for {
+			select {
+			case <-w.coalescerStop:
+				return
+			default:
+			}
 			m, ok := w.coalescer.Next()
 			if !ok {
 				time.Sleep(20 * time.Millisecond)
@@ -375,6 +390,31 @@ func (w *Wiring) startCoalescerFlusher() {
 			}
 		}
 	}()
+}
+
+// stopCoalescerFlusher 停止自动轮询并等待退出（幂等；App 停机/测试清理用）。
+func (w *Wiring) stopCoalescerFlusher() {
+	w.stopOnce.Do(func() {
+		close(w.coalescerStop)
+		<-w.coalescerDone
+	})
+}
+
+// drainCoalesced 确定性冲刷 Coalescer 全部待发消息到 Scheduler（测试/同步
+// 路径；生产仍用自动轮询）。
+func (w *Wiring) drainCoalesced() {
+	for {
+		m, ok := w.coalescer.Next()
+		if !ok {
+			return
+		}
+		if err := w.outbox.Enqueue(m); err != nil {
+			if errors.Is(err, outbox.ErrClosed) {
+				return
+			}
+			w.log.Warn("app: coalescer drain enqueue", "error", err)
+		}
+	}
 }
 
 // sendText 渲染 i18n 文案并作为 send_text 投递（默认 MarkdownV2）。

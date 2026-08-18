@@ -12,7 +12,9 @@ import (
 	"github.com/v2up-32mb/telegram-werewolf/internal/telegram"
 )
 
-// newWiringSched 构造已 Attach 的 Wiring + recording Scheduler。
+// newWiringSched 构造已 Attach 的 Wiring + recording Scheduler；默认关闭
+// 自动 flusher（测试用确定性 drainCoalesced，避免 20ms 轮询竞争窗口；
+// sched 关闭时该测试 Wiring 不再有后台 goroutine 引用）。
 func newWiringSched(t *testing.T, cap int) (*Wiring, *recordingSender, *outbox.Scheduler) {
 	t.Helper()
 	ctx := context.Background()
@@ -29,6 +31,7 @@ func newWiringSched(t *testing.T, cap int) (*Wiring, *recordingSender, *outbox.S
 	if err := w.Attach(db, sched); err != nil {
 		t.Fatalf("Attach: %v", err)
 	}
+	w.stopCoalescerFlusher()
 	return w, rec, sched
 }
 
@@ -67,6 +70,10 @@ func TestSpeechSelfDeleteDelaysThenDeletes(t *testing.T) {
 
 // TestCoalescerMergesPanelUpdates 是 I1 红测：同一 Chat 同一 CoalesceKey 的
 // 面板刷新只保留最新版本（docs 技术选型.md §7.1）。
+//
+// 确定性：newWiringSched 已停用自动轮询 flusher，本测试在 5 条 enqueue 后
+// 显式 drainCoalesced() 一次性冲刷合并队列到 Scheduler——避免 20ms 轮询与
+// 断言窗口的竞争；同 key 合并发生在 outbox.Coalescer（其单测已覆盖）。
 func TestCoalescerMergesPanelUpdates(t *testing.T) {
 	w, rec, sched := newWiringSched(t, 8)
 	defer func() { _ = sched.Close(context.Background()) }()
@@ -77,7 +84,10 @@ func TestCoalescerMergesPanelUpdates(t *testing.T) {
 			t.Fatalf("enqueue #%d: %v", i, err)
 		}
 	}
+	// 确定性冲刷：合并队列此刻仅 1 条（同 key），送入 Scheduler。
+	w.drainCoalesced()
 
+	// 等待该唯一面板送达（Scheduler worker 异步发送到 recordingSender）。
 	deadline := time.Now().Add(3 * time.Second)
 	panels := 0
 	for time.Now().Before(deadline) && panels == 0 {
@@ -89,19 +99,6 @@ func TestCoalescerMergesPanelUpdates(t *testing.T) {
 		case <-time.After(5 * time.Millisecond):
 		}
 	}
-	// 稍等，确认没有重复面板送达。
-	time.Sleep(150 * time.Millisecond)
-	for {
-		select {
-		case m := <-rec.ch:
-			if m.CoalesceKey == "panel:ROOM" {
-				panels++
-			}
-		default:
-			goto done
-		}
-	}
-done:
 	if panels != 1 {
 		t.Fatalf("面板送达 = %d, want 1（同 key 合并只发最新一版）", panels)
 	}
