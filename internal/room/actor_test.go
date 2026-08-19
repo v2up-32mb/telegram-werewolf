@@ -374,7 +374,10 @@ func waitTimeoutCommand(t *testing.T, ch <-chan game.TimeoutCommand) game.Timeou
 	select {
 	case tc := <-ch:
 		return tc
-	case <-time.After(3 * time.Second):
+	case <-time.After(5 * time.Second):
+		// 5 秒：race 检测器插桩会把 goroutine 调度延迟放大 5-10 倍，
+		// 3 秒曾在 CI race job 上随机超时（flake），放宽后仍远低于
+		// 任何真实计时语义（fakeClock 驱动，无真实等待）。
 		t.Fatal("等待 TimeoutCommand 超时")
 		return game.TimeoutCommand{}
 	}
