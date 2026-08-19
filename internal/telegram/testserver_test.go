@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -75,7 +76,23 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"id": 12345, "is_bot": true, "first_name": "Werewolf", "username": "werewolf_test_bot",
 		})
 	case "getUpdates":
-		writeAPIResult(w, updates)
+		// 遵守真实 Telegram 的 offset 语义：已确认（update_id < offset）的
+		// update 不再下发。否则库的下一轮轮询会重复投递已确认 update，
+		// 污染 cancel 语义测试（CI race job 曾因此 flake）。
+		out := updates
+		if off, err := strconv.ParseInt(form["offset"], 10, 64); err == nil && off > 0 {
+			kept := make([]json.RawMessage, 0, len(updates))
+			for _, u := range updates {
+				var id struct {
+					UpdateID int64 `json:"update_id"`
+				}
+				if json.Unmarshal(u, &id) != nil || id.UpdateID >= off {
+					kept = append(kept, u)
+				}
+			}
+			out = kept
+		}
+		writeAPIResult(w, out)
 	case "sendMessage", "editMessageText", "sendPhoto":
 		writeAPIResult(w, map[string]any{
 			"message_id": 100,
@@ -136,6 +153,50 @@ func (f *fakeAPI) setGetUpdatesBehavior(beh apiBehavior) {
 	f.mu.Lock()
 	f.behavior["getUpdates"] = beh
 	f.mu.Unlock()
+}
+
+// TestFakeAPIHonorsOffset 锁定 fake Telegram 的 offset 确认语义：
+// update_id < offset 的已确认 update 不再下发（与真实 API 一致）。
+// 这是 TestSourceStopsOnContextCancel 不 flake 的基础。
+func TestFakeAPIHonorsOffset(t *testing.T) {
+	f := newFakeAPI(t, testToken)
+	f.setUpdates(messageUpdate(1, "/start", 1, 2), messageUpdate(2, "/newgame", 1, 2))
+
+	body := func(offset string) []int64 {
+		t.Helper()
+		var form map[string][]string
+		if offset != "" {
+			form = map[string][]string{"offset": {offset}}
+		}
+		resp, err := http.PostForm(f.URL+"/bot"+testToken+"/getUpdates", form)
+		if err != nil {
+			t.Fatalf("getUpdates: %v", err)
+		}
+		defer resp.Body.Close()
+		var out struct {
+			Result []struct {
+				UpdateID int64 `json:"update_id"`
+			} `json:"result"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		ids := make([]int64, 0, len(out.Result))
+		for _, u := range out.Result {
+			ids = append(ids, u.UpdateID)
+		}
+		return ids
+	}
+
+	if ids := body(""); len(ids) != 2 {
+		t.Fatalf("无 offset 时 ids = %v, want [1 2]", ids)
+	}
+	if ids := body("2"); len(ids) != 1 || ids[0] != 2 {
+		t.Fatalf("offset=2 时 ids = %v, want [2]（已确认的 1 不重发）", ids)
+	}
+	if ids := body("3"); len(ids) != 0 {
+		t.Fatalf("offset=3 时 ids = %v, want []", ids)
+	}
 }
 
 func writeAPIResult(w http.ResponseWriter, result any) {
