@@ -740,6 +740,34 @@ func (r *liveRegistry) roomCodes() []game.RoomID {
 	return out
 }
 
+// takeActor 取出并清除房间的 Actor 引用（B3：解散/停机时停止 Actor 前
+// 调用，防止后续 Dispatch 路径拿到已停止的 Actor 继续投递）。
+func (r *liveRegistry) takeActor(code game.RoomID) (*room.Actor, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	lr, ok := r.rooms[code]
+	if !ok || lr.actor == nil {
+		return nil, false
+	}
+	actor := lr.actor
+	lr.actor = nil
+	return actor, true
+}
+
+// actors 返回全部房间 Actor 的快照（B3：App 停机统一停止 Wiring 创建的
+// Actor——它们不归 room.Manager 管）。
+func (r *liveRegistry) actors() []*room.Actor {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]*room.Actor, 0, len(r.rooms))
+	for _, lr := range r.rooms {
+		if lr.actor != nil {
+			out = append(out, lr.actor)
+		}
+	}
+	return out
+}
+
 // updateLifetime 更新房间闲置生命周期元数据（I7：续期/到期评估结果回写）。
 func (r *liveRegistry) updateLifetime(code game.RoomID, lt game.LobbyLifetime) {
 	r.mu.Lock()
@@ -1256,6 +1284,11 @@ func (w *Wiring) handleCommand(ctx context.Context, cmd game.Command) error {
 			}
 			if res.Err != nil {
 				w.log.Warn("app: start game rejected", "room", string(roomID), "error", res.Err)
+				// B3：开局被领域拒绝（人数不足/退出窗口未过等）时退役刚绑定
+				// 的 Actor——否则大厅房间挂着 actor != nil，SweepIdle 永久跳过
+				// 它，Actor goroutine 泄漏。
+				w.retireActor(roomID)
+				w.director.release(roomID)
 				return res.Err // 领域拒绝（人数不足等）：供顶层回调反馈
 			}
 			// 发牌效果已由导演 OnApplied 扇出；导演同步 reg 状态（含 Adopt）。
@@ -1271,15 +1304,30 @@ func (w *Wiring) handleCommand(ctx context.Context, cmd game.Command) error {
 
 	res, err := lr.actor.Dispatch(ctx, cmd)
 	if err != nil {
-		w.log.Warn("app: room dispatch", "room", string(roomID), "error", err)
+		w.log.Warn("app: room dispatch", "room", string(roomID), "command", fmt.Sprintf("%T", cmd), "error", err)
 		return nil // 领域/基础设施拒绝：ACK
 	}
 	if res.Err != nil {
 		w.log.Warn("app: command rejected", "room", string(roomID), "command", fmt.Sprintf("%T", cmd), "error", res.Err)
 		return res.Err
 	}
+	// B3：Rematch 回大厅后退役本局 Actor——房间交回 /newgame 周期（再次
+	// start_game 会引导新 Actor），否则 SweepIdle 因 actor != nil 永久跳过
+	// 该房间，Actor goroutine/Timer 泄漏。
+	if _, ok := cmd.(game.RematchCommand); ok {
+		w.retireActor(roomID)
+	}
 	// 效果已由导演 OnApplied 扇出；导演同步 reg 状态（含 Adopt 的阶段推进）。
 	return nil
+}
+
+// retireActor 退役房间的当前 Actor（B3）：取出引用并 Close 发信号退出。
+// 房间留在注册表（Rematch 回大厅语义），下次 start_game 引导新 Actor。
+func (w *Wiring) retireActor(roomID game.RoomID) {
+	if actor, ok := w.reg.takeActor(roomID); ok {
+		actor.Close()
+		w.log.Info("app: room actor retired", "room", string(roomID))
+	}
 }
 
 // newGameActor 创建开局 Actor：绑定导演 OnApplied（B1-a/B1-d）。

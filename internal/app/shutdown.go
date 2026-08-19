@@ -33,6 +33,12 @@ func (a *App) Stop(ctx context.Context) error {
 
 	a.roomsClosed.Store(true)
 	a.rooms.Close()
+	// B3：生产玩法 Actor 由 Wiring 创建（不归 room.Manager 管），停机时
+	// 在此统一停止并等待退出，防止泄漏 goroutine/Timer。
+	if a.wiring != nil {
+		a.wiring.stopActors()
+		a.wiring.stopCoalescerFlusher()
+	}
 	a.log.Info("app: shutdown", "step", "rooms_stopped")
 
 	a.outboxClosed.Store(true)

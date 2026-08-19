@@ -404,13 +404,31 @@ func settlementReportText(s game.Settlement) string {
 }
 
 // dissolveRoom 处理房间解散（投票解散/房主强制解散/闲置过期）：清理 storage
-// 活跃行 + 内存注册表 + 导演状态（docs 游戏流程设计.md §解散、§闲置回收）。
+// 活跃行 + 内存注册表 + 导演状态 + 停止房间 Actor（B3：DissolveEffect 从 Actor
+// 自身 goroutine 的 OnApplied → fanOut 路径触达这里，故只能 Close 发信号，
+// 不能同步 Stop 等待，否则死锁）。
 func (w *Wiring) dissolveRoom(roomID game.RoomID, _ game.DissolveReason) {
 	if err := w.repo.RemoveRoom(context.Background(), roomID); err != nil && !errors.Is(err, storage.ErrRoomNotFound) {
 		w.log.Warn("app: dissolve remove room", "room", string(roomID), "error", err)
 	}
+	// 先取走 Actor 引用再清理注册表/导演（后续 Dispatch 拿不到已停止的 Actor）。
+	if actor, ok := w.reg.takeActor(roomID); ok {
+		actor.Close()
+	}
 	w.reg.removeRoom(roomID)
 	w.director.release(roomID)
+}
+
+// stopActors 停止 Wiring 管理的全部房间 Actor 并等待退出（App 停机第③步；
+// 幂等）。Director 持有的 speech timer 由 release 语义一并清理。
+func (w *Wiring) stopActors() {
+	for _, actor := range w.reg.actors() {
+		actor.Close()
+	}
+	// 等待 goroutine 退出：Close 只发信号，此处统一等待，确保停机后无泄漏。
+	for _, actor := range w.reg.actors() {
+		actor.Stop()
+	}
 }
 
 // SweepIdle 执行一轮闲置回收评估（I7）：对每个仍处等待大厅的房间调用

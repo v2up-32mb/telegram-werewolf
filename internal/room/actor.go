@@ -162,12 +162,26 @@ func (a *Actor) Adopt(st game.State, fx []game.Effect) {
 }
 
 // Stop 幂等地停止 Actor：取消计时器、关闭接收并等待事件循环 goroutine 退出。
+// 注意：不得在 Actor 自身 goroutine（OnApplied 回调等）内调用——wg.Wait 会
+// 永久阻塞；该场景使用 Close() 只发信号、由 App 停机路径统一等待。
 func (a *Actor) Stop() {
+	a.Close()
+	a.wg.Wait()
+}
+
+// Close 幂等地发送停止信号：置 closed 标记并关闭 done 通道，事件循环
+// goroutine 自行退出。不等待 goroutine 结束（B3：解散路径从 Actor 自身
+// goroutine 触发时，同步等待会死锁）。
+func (a *Actor) Close() {
 	a.stopOnce.Do(func() {
 		a.closed.Store(true)
 		close(a.done)
 	})
-	a.wg.Wait()
+}
+
+// Stopped 报告 Actor 是否已收到停止信号（测试与停机观察用）。
+func (a *Actor) Stopped() bool {
+	return a.closed.Load()
 }
 
 func (a *Actor) run() {
