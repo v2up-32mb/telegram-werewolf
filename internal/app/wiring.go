@@ -482,11 +482,10 @@ func (w *Wiring) renderMessage(e game.MessageEffect, roomID game.RoomID) (string
 
 // buildPanel 从注册表房间状态 + storage 昵称构建房主面板（S3/S4）。
 func (w *Wiring) buildPanel(roomID game.RoomID) (string, *telegram.ReplyMarkup, error) {
-	r, ok := w.reg.get(roomID)
+	st, _, _, _, ok := w.reg.snapshot(roomID)
 	if !ok {
 		return "", nil, errors.New("app: panel room not found")
 	}
-	st := r.st
 
 	code, err := w.renderer.Render("panel.room_code", map[string]any{"RoomCode": string(st.RoomID)})
 	if err != nil {
@@ -604,11 +603,11 @@ func wiringAudienceChat(a game.Audience, roomID game.RoomID, actor game.UserID, 
 	case game.AudienceActor:
 		return int64(actor), nil
 	case game.AudienceHost:
-		r, ok := reg.get(roomID)
+		_, _, host, _, ok := reg.snapshot(roomID)
 		if !ok {
 			return 0, errors.New("app: host audience room not found")
 		}
-		return int64(r.host), nil
+		return int64(host), nil
 	default:
 		return 0, fmt.Errorf("app: audience %d not supported in lobby wiring", a)
 	}
@@ -670,6 +669,20 @@ func (r *liveRegistry) get(code game.RoomID) (*liveRoom, bool) {
 	defer r.mu.Unlock()
 	lr, ok := r.rooms[code]
 	return lr, ok
+}
+
+// snapshot 返回房间状态的安全快照（锁内拷贝）：跨 goroutine 调用方
+// （TrySpeak/SweepIdle/适配器）读取 lr.st/lr.actor/lr.host/lr.life 时，
+// 避免与 Actor goroutine 的 updateState/takeActor 写发生数据竞争（I3）。
+// 注意：st 是值拷贝，actor/host 是引用值；调用方不应依赖其后续变更。
+func (r *liveRegistry) snapshot(code game.RoomID) (st game.State, actor *room.Actor, host game.UserID, life game.LobbyLifetime, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	lr, ok := r.rooms[code]
+	if !ok {
+		return game.State{}, nil, 0, game.LobbyLifetime{}, false
+	}
+	return lr.st, lr.actor, lr.host, lr.life, true
 }
 
 func (r *liveRegistry) roomOf(user game.UserID) (game.RoomID, bool) {
@@ -752,6 +765,17 @@ func (r *liveRegistry) takeActor(code game.RoomID) (*room.Actor, bool) {
 	actor := lr.actor
 	lr.actor = nil
 	return actor, true
+}
+
+// adoptActor 把新建的房间 Actor 写回注册表（I3：handleCommand 的
+// start_game 引导 Actor 时使用；原代码直接写 lr.actor 字段，锁外
+// 写入与 takeActor/更新读竞态，统一改经此持锁方法）。
+func (r *liveRegistry) adoptActor(code game.RoomID, actor *room.Actor) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if lr, ok := r.rooms[code]; ok {
+		lr.actor = actor
+	}
 }
 
 // actors 返回全部房间 Actor 的快照（B3：App 停机统一停止 Wiring 创建的
@@ -1027,11 +1051,11 @@ func (a leaveServiceAdapter) Leave(ctx context.Context, actor game.UserID, comma
 	if !ok {
 		return nil, game.ErrNotInRoom
 	}
-	lr, ok := a.reg.get(roomID)
+	st, _, _, _, ok := a.reg.snapshot(roomID)
 	if !ok {
 		return nil, game.ErrNotInRoom
 	}
-	newSt, fx, err := a.life.LeaveRoom(ctx, lr.st, game.LeaveCommand{Meta: game.CommandMeta{ID: commandID, Actor: actor}})
+	newSt, fx, err := a.life.LeaveRoom(ctx, st, game.LeaveCommand{Meta: game.CommandMeta{ID: commandID, Actor: actor}})
 	if err != nil {
 		return nil, err
 	}
@@ -1060,14 +1084,14 @@ func (a roleServiceAdapter) Role(ctx context.Context, actor game.UserID) (telegr
 	if !ok {
 		return telegram.RoleReply{}, game.ErrNotInRoom
 	}
-	lr, ok := a.reg.get(roomID)
+	st, _, _, _, ok := a.reg.snapshot(roomID)
 	if !ok {
 		return telegram.RoleReply{}, game.ErrNotInRoom
 	}
-	if lr.st.Phase == game.PhaseLobby || lr.st.Phase == game.PhaseDeal {
+	if st.Phase == game.PhaseLobby || st.Phase == game.PhaseDeal {
 		return telegram.RoleReply{}, game.ErrWrongPhase
 	}
-	for _, p := range lr.st.Players {
+	for _, p := range st.Players {
 		if p.UserID == actor {
 			return telegram.RoleReply{RoleName: roleNameCN(p.Role), CampName: campNameCN(p.Role)}, nil
 		}
@@ -1257,7 +1281,7 @@ func (w *Wiring) handleCommand(ctx context.Context, cmd game.Command) error {
 		_ = w.sendText(ctx, "cb", "", int64(meta.Actor), "commands.no_room", nil)
 		return nil
 	}
-	lr, ok := w.reg.get(roomID)
+	st, actor, _, _, ok := w.reg.snapshot(roomID)
 	if !ok {
 		return nil
 	}
@@ -1265,7 +1289,7 @@ func (w *Wiring) handleCommand(ctx context.Context, cmd game.Command) error {
 	// 开局前（大厅）回调：建房后按钮（设置/解散/开始）。单账号冒烟范围
 	// 内面板按钮尚未接线 inline keyboard，此路径主要保证 StartGame 可
 	// 引导房间 Actor（B1-d 起按钮经 inline keyboard + CallbackAction 到达）。
-	if lr.actor == nil {
+	if actor == nil {
 		switch c := cmd.(type) {
 		case game.SettingsCommand:
 			_, fx, err := w.settings.Apply(ctx, c)
@@ -1275,9 +1299,11 @@ func (w *Wiring) handleCommand(ctx context.Context, cmd game.Command) error {
 			}
 			return w.applyEffects(ctx, "cb:"+string(roomID), roomID, meta.Actor, fx)
 		case game.StartGameCommand:
-			lr.actor = w.newGameActor(lr.st)
-			w.director.bind(roomID, lr.actor)
-			res, err := lr.actor.Dispatch(ctx, c)
+			newActor := w.newGameActor(st)
+			// 写回注册表供后续命令/推进引用（原 lr.actor 字段）。
+			w.reg.adoptActor(roomID, newActor)
+			w.director.bind(roomID, newActor)
+			res, err := newActor.Dispatch(ctx, c)
 			if err != nil {
 				w.log.Warn("app: start game dispatch", "room", string(roomID), "error", err)
 				return nil
@@ -1302,7 +1328,7 @@ func (w *Wiring) handleCommand(ctx context.Context, cmd game.Command) error {
 		}
 	}
 
-	res, err := lr.actor.Dispatch(ctx, cmd)
+	res, err := actor.Dispatch(ctx, cmd)
 	if err != nil {
 		w.log.Warn("app: room dispatch", "room", string(roomID), "command", fmt.Sprintf("%T", cmd), "error", err)
 		return nil // 领域/基础设施拒绝：ACK

@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/v2up-32mb/telegram-werewolf/internal/game"
@@ -28,12 +29,20 @@ import (
 
 // roomDirector 是房间导演：管理每房阶段推进状态与 Actor 绑定。
 type roomDirector struct {
-	w     *Wiring
+	w  *Wiring
+	mu sync.Mutex
+	// rooms 由多类 goroutine 并发触达（Actor onApplied、Timer
+	// speechTimeout、Telegram update、SweepIdle/解散 release），
+	// 所有访问必须持 mu（I3：裸 map 曾在 CI race 下并发崩溃）。
 	rooms map[game.RoomID]*dirRoom
 }
 
 // dirRoom 是单房导演状态。
 type dirRoom struct {
+	// mu 保护跨 goroutine 字段（actor、speech）：actor 由 Telegram/
+	// 解散路径写、Timer 回调读；speech 由 Actor goroutine 写、
+	// Timer/Telegram 路径读（I3）。
+	mu           sync.Mutex
 	actor        *room.Actor
 	night        int
 	lastPeriod   string // 当前时间段主消息标识（"night.N"/"day.D"，Item 1）
@@ -60,7 +69,19 @@ func newDirector(w *Wiring) *roomDirector {
 	return &roomDirector{w: w, rooms: make(map[game.RoomID]*dirRoom)}
 }
 
+// room 返回房间导演状态的只读视图：房间不存在时返回 nil（不重建）。
+// 迟到的 Timer 回调（speechTimeout 等）据此自然跳过已解散房间，
+// 不再留下无法 release 的孤儿 dirRoom（I3）。
 func (d *roomDirector) room(roomID game.RoomID) *dirRoom {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.rooms[roomID]
+}
+
+// ensureRoom 返回房间导演状态，不存在时创建。
+func (d *roomDirector) ensureRoom(roomID game.RoomID) *dirRoom {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	dr, ok := d.rooms[roomID]
 	if !ok {
 		dr = &dirRoom{}
@@ -72,7 +93,9 @@ func (d *roomDirector) room(roomID game.RoomID) *dirRoom {
 // bind 注册房间 Actor 到导演（开局引导 StartGame 时调用）；pump 的
 // Adopt 依赖该引用把阶段推进结果回写 Actor。
 func (d *roomDirector) bind(roomID game.RoomID, actor *room.Actor) {
-	dr := d.room(roomID)
+	dr := d.ensureRoom(roomID)
+	dr.mu.Lock()
+	defer dr.mu.Unlock()
 	dr.actor = actor
 }
 
@@ -97,10 +120,16 @@ func (d *roomDirector) onApplied(roomID game.RoomID, st game.State, fx []game.Ef
 			return
 		}
 		dr := d.room(roomID)
-		if dr.actor == nil {
+		if dr == nil {
+			return // 房间已解散：推进自然终止（I3）
+		}
+		dr.mu.Lock()
+		actor := dr.actor
+		dr.mu.Unlock()
+		if actor == nil {
 			return
 		}
-		dr.actor.Adopt(next, nfx)
+		actor.Adopt(next, nfx)
 		// S3：pump 内阶段切换同样即时失效旧阶段 token（不只是命令驱动入口），
 		// 保证「阶段切换时旧 Token 整体失效」无延迟窗口。
 		d.syncPhaseTokens(roomID, next)
@@ -116,7 +145,9 @@ func (d *roomDirector) onApplied(roomID game.RoomID, st game.State, fx []game.Ef
 // syncPhaseTokens 在阶段变化时调用 CallbackManager.InvalidatePhase 使旧阶段
 // token 整体失效（S3；docs/技术选型.md §7.3「阶段切换时旧 Token 整体失效」）。
 func (d *roomDirector) syncPhaseTokens(roomID game.RoomID, st game.State) {
-	dr := d.room(roomID)
+	dr := d.ensureRoom(roomID)
+	dr.mu.Lock()
+	defer dr.mu.Unlock()
 	if dr.prevPhase == st.Phase {
 		return
 	}
@@ -129,12 +160,17 @@ func (d *roomDirector) syncPhaseTokens(roomID game.RoomID, st game.State) {
 // pump 推进一个阶段窗口；adv=true 表示状态已变化（调用方需 Adopt）。
 func (d *roomDirector) pump(roomID game.RoomID, st game.State) (game.State, []game.Effect, bool, error) {
 	dr := d.room(roomID)
+	if dr == nil {
+		return st, nil, false, nil // 房间已解散：停止推进（I3）
+	}
 	switch st.Phase {
 	case game.PhaseNight:
 		if !dr.wolfStarted {
 			dr.wolfStarted = true
 			dr.night++
+			dr.mu.Lock()
 			dr.lastPeriod = fmt.Sprintf("night.%d", dr.night)
+			dr.mu.Unlock()
 			next, fx, err := game.BeginWolfPhase(st)
 			return next, fx, true, err
 		}
@@ -170,7 +206,9 @@ func (d *roomDirector) pump(roomID game.RoomID, st game.State) (game.State, []ga
 			// lastPeriod 保持 "night.N"：resolve 批次（夜死讯/胜利）写入该夜主消息。
 			dr.wolfStarted, dr.witchStarted, dr.seerStarted = false, false, false
 			dr.dayStarted = false
+			dr.mu.Lock()
 			dr.speech = nil
+			dr.mu.Unlock()
 			return next, fx, true, nil
 		}
 	case game.PhaseDaySpeech:
@@ -182,7 +220,9 @@ func (d *roomDirector) pump(roomID game.RoomID, st game.State) (game.State, []ga
 		// 结算后导演复位；Rematch 由 reducer 处理回 Lobby（回到等待大厅）。
 		dr.wolfStarted, dr.witchStarted, dr.seerStarted = false, false, false
 		dr.dayStarted = false
+		dr.mu.Lock()
 		dr.speech = nil
+		dr.mu.Unlock()
 	}
 	return st, nil, false, nil
 }
@@ -190,8 +230,13 @@ func (d *roomDirector) pump(roomID game.RoomID, st game.State) (game.State, []ga
 // startDay 开启白天：死讯播报 + 构造麦序 + 首名发言者控制消息 + 发言计时。
 func (d *roomDirector) startDay(st game.State) (game.State, []game.Effect, bool, error) {
 	dr := d.room(st.RoomID)
+	if dr == nil {
+		return st, nil, false, nil // 房间已解散
+	}
 	dr.day++
+	dr.mu.Lock()
 	dr.lastPeriod = fmt.Sprintf("day.%d", dr.day)
+	dr.mu.Unlock()
 	out := game.DayOutcome{Victims: dr.victims, Cause: dr.cause}
 	st2, fx1, err := game.DayStart(st, out)
 	if err != nil {
@@ -203,7 +248,9 @@ func (d *roomDirector) startDay(st game.State) (game.State, []game.Effect, bool,
 	}
 	st3 := st2.Copy()
 	st3.Day = game.DayState{Speaker: order[0], SpeechOrder: order}
+	dr.mu.Lock()
 	dr.speech = &speechDir{order: order, idx: 0, counter: game.NewRoundCounter(game.SpeechMaxPerRound)}
+	dr.mu.Unlock()
 	control, err := game.SpeechControl(st3, order[0], 0, len(order), d.w.now())
 	if err != nil {
 		return st, nil, false, err
@@ -217,6 +264,11 @@ func (d *roomDirector) startDay(st game.State) (game.State, []game.Effect, bool,
 // 自行点「结束发言」结束。
 func (d *roomDirector) armSpeechTimer(roomID game.RoomID, st game.State) {
 	dr := d.room(roomID)
+	if dr == nil {
+		return
+	}
+	dr.mu.Lock()
+	defer dr.mu.Unlock()
 	if dr.speech == nil || dr.speech.timer != nil {
 		return
 	}
@@ -238,10 +290,16 @@ func (d *roomDirector) armSpeechTimer(roomID game.RoomID, st game.State) {
 // softSpeechReminder 在软限时到期时提醒当前发言者但不强制打断。
 func (d *roomDirector) softSpeechReminder(roomID game.RoomID) {
 	dr := d.room(roomID)
-	if dr.actor == nil {
+	if dr == nil {
+		return // 房间已解散（I3：room() 只读不重建）
+	}
+	dr.mu.Lock()
+	actor := dr.actor
+	dr.mu.Unlock()
+	if actor == nil {
 		return
 	}
-	if _, err := dr.actor.DispatchLocal(context.Background(), remindSpeechFn(roomID, dr)); err != nil {
+	if _, err := actor.DispatchLocal(context.Background(), remindSpeechFn(roomID, dr)); err != nil {
 		d.w.log.Warn("app: soft speech reminder", "room", string(roomID), "error", err)
 	}
 }
@@ -264,10 +322,16 @@ func remindSpeechFn(roomID game.RoomID, dr *dirRoom) room.LocalFunc {
 // speechTimeout 是发言超时（真实 timer 或测试直接调用）：移交下一位/结束白天。
 func (d *roomDirector) speechTimeout(roomID game.RoomID) {
 	dr := d.room(roomID)
-	if dr.actor == nil {
+	if dr == nil {
+		return // 房间已解散（I3：room() 只读不重建）
+	}
+	dr.mu.Lock()
+	actor := dr.actor
+	dr.mu.Unlock()
+	if actor == nil {
 		return
 	}
-	if _, err := dr.actor.DispatchLocal(context.Background(), func(st game.State) (game.State, []game.Effect, error) {
+	if _, err := actor.DispatchLocal(context.Background(), func(st game.State) (game.State, []game.Effect, error) {
 		return d.advanceSpeech(roomID, st)
 	}); err != nil {
 		d.w.log.Warn("app: speech timeout dispatch", "room", string(roomID), "error", err)
@@ -275,40 +339,60 @@ func (d *roomDirector) speechTimeout(roomID game.RoomID) {
 }
 
 // advanceSpeech 移交麦位：下一位发言，或全部完成后进入白天投票。
+// 跑在 Actor goroutine（DispatchLocal 的 fn），但 dr.speech 跨 goroutine
+// 可见（Speak 闭包在 Telegram goroutine 读），故持锁访问。
 func (d *roomDirector) advanceSpeech(roomID game.RoomID, st game.State) (game.State, []game.Effect, error) {
 	if st.Phase != game.PhaseDaySpeech {
 		return st, nil, nil
 	}
 	dr := d.room(roomID)
+	if dr == nil {
+		return st, nil, nil
+	}
+	dr.mu.Lock()
 	if dr.speech == nil {
+		dr.mu.Unlock()
 		return st, nil, nil
 	}
 	dr.speech.idx++
 	if dr.speech.idx >= len(dr.speech.order) {
 		// 麦序完成 → BeginVote（白天投票；docs 游戏流程设计.md §投票）。
-		d.stopSpeechTimer(roomID)
+		sp := dr.speech
 		dr.speech = nil
+		dr.mu.Unlock()
+		if sp.timer != nil {
+			sp.timer.Stop()
+		}
 		next, fx, err := game.BeginVote(st, d.w.now())
 		return next, fx, err
 	}
 	seat := dr.speech.order[dr.speech.idx]
 	dr.speech.counter = game.NewRoundCounter(game.SpeechMaxPerRound)
+	orderLen := len(dr.speech.order)
+	if dr.speech.timer != nil {
+		dr.speech.timer.Stop()
+		dr.speech.timer = nil
+	}
+	dr.mu.Unlock()
 	next := st.Copy()
 	next.Day.Speaker = seat
-	control, err := game.SpeechControl(next, seat, 0, len(dr.speech.order), d.w.now())
+	control, err := game.SpeechControl(next, seat, 0, orderLen, d.w.now())
 	if err != nil {
 		return st, nil, err
 	}
-	d.stopSpeechTimer(roomID)
-	dr.speech.timer = nil
 	d.armSpeechTimer(roomID, next)
 	return next, control, nil
 }
 
 // stopSpeechTimer 停止当前发言计时器。
 func (d *roomDirector) stopSpeechTimer(roomID game.RoomID) {
-	dr, ok := d.rooms[roomID]
-	if !ok || dr.speech == nil || dr.speech.timer == nil {
+	dr := d.room(roomID)
+	if dr == nil {
+		return
+	}
+	dr.mu.Lock()
+	defer dr.mu.Unlock()
+	if dr.speech == nil || dr.speech.timer == nil {
 		return
 	}
 	dr.speech.timer.Stop()
@@ -319,10 +403,16 @@ func (d *roomDirector) stopSpeechTimer(roomID game.RoomID) {
 // 转播 + 原消息 3 秒自毁（docs 游戏流程设计.md §发言限制）。
 func (d *roomDirector) Speak(roomID game.RoomID, user game.UserID, chatID, messageID int64, text string) error {
 	dr := d.room(roomID)
-	if dr.actor == nil {
+	if dr == nil {
 		return nil
 	}
-	_, err := dr.actor.DispatchLocal(context.Background(), func(st game.State) (game.State, []game.Effect, error) {
+	dr.mu.Lock()
+	actor := dr.actor
+	dr.mu.Unlock()
+	if actor == nil {
+		return nil
+	}
+	_, err := actor.DispatchLocal(context.Background(), func(st game.State) (game.State, []game.Effect, error) {
 		if st.Phase != game.PhaseDaySpeech {
 			return st, nil, nil
 		}
@@ -364,11 +454,17 @@ func (d *roomDirector) Speak(roomID game.RoomID, user game.UserID, chatID, messa
 // EndSpeech 处理「结束发言」回调：移交麦位/进入投票。
 func (d *roomDirector) EndSpeech(roomID game.RoomID) error {
 	dr := d.room(roomID)
-	if dr.actor == nil {
+	if dr == nil {
+		return nil
+	}
+	dr.mu.Lock()
+	actor := dr.actor
+	dr.mu.Unlock()
+	if actor == nil {
 		return nil
 	}
 	d.stopSpeechTimer(roomID)
-	if _, err := dr.actor.DispatchLocal(context.Background(), func(st game.State) (game.State, []game.Effect, error) {
+	if _, err := actor.DispatchLocal(context.Background(), func(st game.State) (game.State, []game.Effect, error) {
 		return d.advanceSpeech(roomID, st)
 	}); err != nil {
 		return err
@@ -378,12 +474,12 @@ func (d *roomDirector) EndSpeech(roomID game.RoomID) error {
 
 // trySpeak 判定是否应把文本当发言处理（sender 为当前发言者）。
 func (d *roomDirector) trySpeak(roomID game.RoomID, user game.UserID, chatID, messageID int64, text string) bool {
-	lr, ok := d.w.reg.get(roomID)
-	if !ok || lr.actor == nil || lr.st.Phase != game.PhaseDaySpeech {
+	st, actor, _, _, ok := d.w.reg.snapshot(roomID)
+	if !ok || actor == nil || st.Phase != game.PhaseDaySpeech {
 		return false
 	}
-	seat, ok := seatByUserOf(lr.st, user)
-	if !ok || seat != lr.st.Day.Speaker {
+	seat, ok := seatByUserOf(st, user)
+	if !ok || seat != st.Day.Speaker {
 		return false
 	}
 	return d.Speak(roomID, user, chatID, messageID, text) == nil
@@ -392,28 +488,28 @@ func (d *roomDirector) trySpeak(roomID game.RoomID, user game.UserID, chatID, me
 // tryLastWords 判定并处理遗言文本（不报身份模式被票死者的 30 秒遗言，
 // docs 游戏流程设计.md §结算 4）：构造 LastWordsCommand 经 Actor 进 reducer。
 func (d *roomDirector) tryLastWords(roomID game.RoomID, user game.UserID, commandID, text string) bool {
-	lr, ok := d.w.reg.get(roomID)
-	if !ok || lr.actor == nil {
+	st, actor, _, _, ok := d.w.reg.snapshot(roomID)
+	if !ok || actor == nil {
 		return false
 	}
-	if lr.st.Phase != game.PhaseDayVote || lr.st.Vote.Stage != game.VoteStageLastWords {
+	if st.Phase != game.PhaseDayVote || st.Vote.Stage != game.VoteStageLastWords {
 		return false
 	}
-	if lr.st.Vote.Exiled == nil {
+	if st.Vote.Exiled == nil {
 		return false
 	}
-	seat, ok := seatByUserOf(lr.st, user)
-	if !ok || seat != *lr.st.Vote.Exiled {
+	seat, ok := seatByUserOf(st, user)
+	if !ok || seat != *st.Vote.Exiled {
 		return false
 	}
 	cmd := game.LastWordsCommand{Meta: game.CommandMeta{
 		ID:            commandID,
 		Actor:         user,
-		ExpectedPhase: lr.st.Phase,
-		PhaseVersion:  lr.st.PhaseVersion,
+		ExpectedPhase: st.Phase,
+		PhaseVersion:  st.PhaseVersion,
 		ReceivedAt:    time.Now(),
 	}, Text: text}
-	if _, err := lr.actor.Dispatch(context.Background(), cmd); err != nil {
+	if _, err := actor.Dispatch(context.Background(), cmd); err != nil {
 		d.w.log.Warn("app: last words dispatch", "room", string(roomID), "error", err)
 		return false
 	}
@@ -437,12 +533,18 @@ func (d *roomDirector) handleAction(ctx context.Context, act telegram.CallbackAc
 
 // release 释放导演持有的房间状态（房间解散/回收时）。
 func (d *roomDirector) release(roomID game.RoomID) {
-	if dr, ok := d.rooms[roomID]; ok {
-		if dr.speech != nil && dr.speech.timer != nil {
-			dr.speech.timer.Stop()
-		}
-		delete(d.rooms, roomID)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	dr, ok := d.rooms[roomID]
+	if !ok {
+		return
 	}
+	dr.mu.Lock()
+	if dr.speech != nil && dr.speech.timer != nil {
+		dr.speech.timer.Stop()
+	}
+	dr.mu.Unlock()
+	delete(d.rooms, roomID)
 }
 
 // ---------------------------------------------------------------------------

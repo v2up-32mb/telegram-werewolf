@@ -436,17 +436,17 @@ func (w *Wiring) stopActors() {
 // 游戏开始后（actor 非 nil / 非 lobby）不受影响（docs §闲置回收）。
 func (w *Wiring) SweepIdle() {
 	for _, code := range w.reg.roomCodes() {
-		lr, ok := w.reg.get(code)
-		if !ok || lr.actor != nil || lr.st.Phase != game.PhaseLobby {
+		st, actor, _, life, ok := w.reg.snapshot(code)
+		if !ok || actor != nil || st.Phase != game.PhaseLobby {
 			continue
 		}
-		newLt, fx, err := w.life.EvaluateIdle(context.Background(), lr.life, lr.st)
+		newLt, fx, err := w.life.EvaluateIdle(context.Background(), life, st)
 		if err != nil {
 			w.log.Warn("app: idle evaluate", "room", string(code), "error", err)
 			continue
 		}
 		w.reg.updateLifetime(code, newLt)
-		if err := w.fanOut(code, lr.st, fx); err != nil {
+		if err := w.fanOut(code, st, fx); err != nil {
 			w.log.Warn("app: idle fanout", "room", string(code), "error", err)
 		}
 		for _, e := range fx {
