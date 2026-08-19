@@ -126,6 +126,22 @@ func (w *Wiring) fanOutMessage(roomID game.RoomID, st game.State, e game.Message
 	if err != nil {
 		return err
 	}
+	// 大厅面板由导演路径触发时也必须携带真实 inline keyboard；不能
+	// 回退为正文中的“操作：开始/设置/解散”说明（docs §房间面板）。
+	if e.Key == game.LobbyPanelMessageKey {
+		text, markup, err := w.renderMessage(e, roomID)
+		if err != nil {
+			return err
+		}
+		coalesce := "panel:" + string(roomID)
+		for _, chat := range chats {
+			if err := w.enqueue("fx:"+string(roomID), roomID, chat, telegram.OpSendText,
+				telegram.Params{ChatID: chat, Text: text, ReplyMarkup: markup}, outbox.PriorityNormal, coalesce); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	// 身份卡（Item 2）：sendPhoto 图片 + Caption，每接收者一条 OpSendRoleCard。
 	if e.Key == game.DealRoleCardMessageKey {
 		role := fmt.Sprint(e.Params["role"])

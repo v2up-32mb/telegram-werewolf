@@ -441,12 +441,12 @@ func (w *Wiring) applyEffects(ctx context.Context, corr string, roomID game.Room
 			if te.Key == game.LobbyPanelMessageKey {
 				coalesce = "panel:" + string(roomID)
 			}
-			text, err := w.renderMessage(te, roomID)
+			text, mk, err := w.renderMessage(te, roomID)
 			if err != nil {
 				w.log.Error("app: render message effect", "room", string(roomID), "key", te.Key, "error", err)
 				continue
 			}
-			if err := w.enqueue(corr, roomID, chat, telegram.OpSendText, telegram.Params{ChatID: chat, Text: text}, outbox.PriorityNormal, coalesce); err != nil {
+			if err := w.enqueue(corr, roomID, chat, telegram.OpSendText, telegram.Params{ChatID: chat, Text: text, ReplyMarkup: mk}, outbox.PriorityNormal, coalesce); err != nil {
 				return err
 			}
 		case game.PersistEffect:
@@ -461,7 +461,7 @@ func (w *Wiring) applyEffects(ctx context.Context, corr string, roomID game.Room
 
 // renderMessage 把 MessageEffect 渲染为 MarkdownV2 文本：面板走专用
 // 构建器（从房间状态取成员），其余走 i18n 文案。
-func (w *Wiring) renderMessage(e game.MessageEffect, roomID game.RoomID) (string, error) {
+func (w *Wiring) renderMessage(e game.MessageEffect, roomID game.RoomID) (string, *telegram.ReplyMarkup, error) {
 	switch e.Key {
 	case game.LobbyPanelMessageKey:
 		return w.buildPanel(roomID)
@@ -472,43 +472,45 @@ func (w *Wiring) renderMessage(e game.MessageEffect, roomID game.RoomID) (string
 		} else {
 			data["Password"] = "未设置"
 		}
-		return w.renderer.Render(e.Key, data)
+		text, err := w.renderer.Render(e.Key, data)
+		return text, nil, err
 	default:
-		return w.renderer.Render(e.Key, e.Params)
+		text, err := w.renderer.Render(e.Key, e.Params)
+		return text, nil, err
 	}
 }
 
 // buildPanel 从注册表房间状态 + storage 昵称构建房主面板（S3/S4）。
-func (w *Wiring) buildPanel(roomID game.RoomID) (string, error) {
+func (w *Wiring) buildPanel(roomID game.RoomID) (string, *telegram.ReplyMarkup, error) {
 	r, ok := w.reg.get(roomID)
 	if !ok {
-		return "", errors.New("app: panel room not found")
+		return "", nil, errors.New("app: panel room not found")
 	}
 	st := r.st
 
 	code, err := w.renderer.Render("panel.room_code", map[string]any{"RoomCode": string(st.RoomID)})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	count, err := w.renderer.Render("panel.count", map[string]any{"Count": len(st.Players), "Max": game.MVPPlayerCount})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	title, err := w.renderer.Render("panel.title", nil)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	phase, err := w.renderer.Render("panel.phase_lobby", nil)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	header, err := w.renderer.Render("panel.members_header", nil)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	invite, err := w.renderer.Render("panel.invite_line", map[string]any{"RoomCode": string(st.RoomID)})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	var lines []string
@@ -526,23 +528,45 @@ func (w *Wiring) buildPanel(roomID game.RoomID) (string, error) {
 		}
 		line, err := w.renderer.Render("panel.member_line", map[string]any{"Seat": p.Seat, "Nickname": nick, "Mark": mark})
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		lines = append(lines, line)
 	}
 
-	var buttons []string
+	labels := make(map[string]string, 3)
 	for _, k := range []string{"panel.button.start", "panel.button.settings", "panel.button.dismiss"} {
 		label, err := w.renderer.Render(k, nil)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
-		buttons = append(buttons, label)
+		labels[k] = label
 	}
-	btnLine, err := w.renderer.Render("panel.buttons_line", map[string]any{"Buttons": strings.Join(buttons, "  ")})
-	if err != nil {
-		return "", err
+
+	actions := []struct {
+		labelKey string
+		action   string
+	}{
+		{"panel.button.start", "start_game"},
+		{"panel.button.settings", "settings"},
+		{"panel.button.dismiss", "host_dissolve"},
 	}
+	var rows [][]telegram.InlineButton
+	var cur []telegram.InlineButton
+	for _, it := range actions {
+		tok, err := w.IssueButton(st.Lobby.Owner, it.action, "", game.PhaseLobby, st.PhaseVersion)
+		if err != nil {
+			return "", nil, fmt.Errorf("app: issue lobby button %q: %w", it.action, err)
+		}
+		cur = append(cur, telegram.InlineButton{Text: labels[it.labelKey], CallbackData: tok})
+		if len(cur) == 3 {
+			rows = append(rows, cur)
+			cur = nil
+		}
+	}
+	if len(cur) > 0 {
+		rows = append(rows, cur)
+	}
+	markup := &telegram.ReplyMarkup{Rows: rows}
 
 	var b strings.Builder
 	b.WriteString(title)
@@ -560,9 +584,7 @@ func (w *Wiring) buildPanel(roomID game.RoomID) (string, error) {
 	}
 	b.WriteByte('\n')
 	b.WriteString(invite)
-	b.WriteByte('\n')
-	b.WriteString(btnLine)
-	return b.String(), nil
+	return b.String(), markup, nil
 }
 
 func sortedPlayers(ps []game.Player) []game.Player {
@@ -1129,6 +1151,12 @@ func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.Callbac
 	if cmd, ok := telegram.CallbackCommand(payload, meta); ok {
 		if err := h.w.handleCommand(ctx, cmd); err != nil {
 			feedback = callbackFeedback(err)
+		}
+	} else if act.Action == "settings" {
+		// 设置编辑表单尚未纳入 B1 的接线边界；按钮必须给出诚实反馈，
+		// 不能静默吞掉未知动作或伪造“设置已更新”。
+		if err := h.w.sendText(ctx, "cb:"+fmt.Sprint(act.UpdateID), "", int64(act.Owner), "settings.not_available", nil); err != nil {
+			feedback = "设置入口暂不可用"
 		}
 	} else if err := h.w.director.handleAction(ctx, act); err != nil {
 		feedback = "操作失败，请重试"

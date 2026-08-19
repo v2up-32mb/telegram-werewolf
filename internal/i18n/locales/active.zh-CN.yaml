@@ -278,6 +278,7 @@ lobby.renewed: "🕐 房间 {{.room_code}} 已续期 1 小时"
 lobby.idle_reminder: "⏳ 房间 {{.room_code}} 即将闲置过期，请及时续期"
 lobby.expired: "🕐 房间 {{.room_code}} 已因闲置过期而回收"
 settings.updated: "⚙️ 房间 {{.room_code}} 设置已更新（密码：{{.Password}}）"
+settings.not_available: "⚙️ 房间设置编辑入口尚未开放，当前配置未修改。"
 
 # 房间面板（面板由接线层从房间状态构建，参数全部经转义）
 panel.title: "🏠 房间面板"
