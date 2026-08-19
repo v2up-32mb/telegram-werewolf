@@ -83,6 +83,7 @@ var wantTables = []string{
 	"role_stats", "battle_reports", "media_cache",
 	"bot_update_cursor",
 	"room_settings",
+	"score_penalties",
 }
 
 func wantTableSet() map[string]bool {
@@ -93,13 +94,13 @@ func wantTableSet() map[string]bool {
 	return set
 }
 
-// TestInitialMigration 从空库执行 Up，检查 10 张表、外键与唯一约束，
+// TestInitialMigration 从空库执行 Up，检查 11 张表、外键与唯一约束，
 // 执行 Down 后确认全部清空（docs/技术选型.md §13.4）。
 func TestInitialMigration(t *testing.T) {
 	db := openTestDB(t)
 	runUp(t, db)
 
-	// 10 张表全部存在。
+	// 11 张表全部存在。
 	got := tableNames(t, db)
 	for _, name := range wantTables {
 		if !got[name] {

@@ -1149,6 +1149,22 @@ func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.Callbac
 	// §9：短按钮反馈经顶部通知，show_alert=false）。
 	feedback := ""
 	if cmd, ok := telegram.CallbackCommand(payload, meta); ok {
+		if hostCmd, isHostDissolve := cmd.(game.HostDissolveCommand); isHostDissolve {
+			score, err := (scoreServiceAdapter{db: h.w.db}).Score(ctx, hostCmd.Meta.Actor)
+			if err != nil {
+				feedback = callbackFeedback(err)
+				cmd = nil
+			} else {
+				hostCmd.HostScore = int(score)
+				cmd = hostCmd
+			}
+		}
+		if cmd == nil {
+			if act.CallbackQueryID != "" {
+				return h.w.answerCallback(act.CallbackQueryID, feedback)
+			}
+			return nil
+		}
 		if err := h.w.handleCommand(ctx, cmd); err != nil {
 			feedback = callbackFeedback(err)
 		}

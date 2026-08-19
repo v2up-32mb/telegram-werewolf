@@ -37,7 +37,9 @@ func (w *Wiring) fanOut(roomID game.RoomID, st game.State, fx []game.Effect) err
 			w.applyCooldown(roomID, te)
 		case game.ScorePenaltyEffect:
 			// I2：房主强制解散扣分。
-			w.applyScorePenalty(roomID, te)
+			if err := w.applyScorePenalty(roomID, te); err != nil {
+				return fmt.Errorf("app: apply score penalty for room %s: %w", roomID, err)
+			}
 		case game.DelayEffect:
 			// I1：延迟执行 Inner（发言原消息 3 秒自毁等，docs 阶段消息设计.md
 			// §16）。定时回调仍经 fanOut，删除语义见 speech.self_delete 分支。
@@ -452,6 +454,16 @@ func (w *Wiring) applyCooldown(_ game.RoomID, e game.CooldownEffect) {
 }
 
 // applyScorePenalty 落地积分扣减（I2/I3：房主强制解散 -10）。
-func (w *Wiring) applyScorePenalty(roomID game.RoomID, e game.ScorePenaltyEffect) {
-	w.log.Debug("app: score penalty (I2 pending)", "room", string(roomID), "amount", e.Amount)
+// storage 在事务内写幂等账本并更新 users.points；失败必须向上返回，
+// 不能只记日志后假报效果已应用。
+func (w *Wiring) applyScorePenalty(roomID game.RoomID, e game.ScorePenaltyEffect) error {
+	if w.users == nil {
+		return errors.New("app: user repository is not attached")
+	}
+	if err := w.users.ApplyScorePenalty(context.Background(), roomID, e.User, e.Amount); err != nil {
+		w.log.Warn("app: apply score penalty", "room", string(roomID), "user", int64(e.User), "amount", e.Amount, "error", err)
+		return err
+	}
+	w.log.Info("app: score penalty applied", "room", string(roomID), "user", int64(e.User), "amount", e.Amount)
+	return nil
 }

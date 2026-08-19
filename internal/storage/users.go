@@ -48,6 +48,62 @@ func (r *UserRepository) Upsert(ctx context.Context, id game.UserID, nickname st
 	return nil
 }
 
+// ApplyScorePenalty 原子地为用户扣分，并以 roomID + userID 做幂等保护。
+// 账本写入与积分更新必须在同一事务内：如果用户更新失败，账本也不能
+// 残留，否则重试会被错误地当作已处理（docs 游戏流程设计.md §积分系统）。
+func (r *UserRepository) ApplyScorePenalty(ctx context.Context, roomID game.RoomID, id game.UserID, amount int) error {
+	if roomID == "" {
+		return errors.New("storage: score penalty room is empty")
+	}
+	if id == 0 {
+		return errors.New("storage: score penalty user is empty")
+	}
+	if amount <= 0 {
+		return fmt.Errorf("storage: score penalty amount must be positive: %d", amount)
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("storage: begin score penalty: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	result, err := tx.ExecContext(ctx,
+		`INSERT INTO score_penalties (room_code, user_id, amount) VALUES (?, ?, ?)
+		 ON CONFLICT (room_code, user_id) DO NOTHING`,
+		string(roomID), int64(id), amount)
+	if err != nil {
+		return fmt.Errorf("storage: record score penalty for room %s: %w", roomID, err)
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("storage: inspect score penalty for room %s: %w", roomID, err)
+	}
+	if inserted == 0 {
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("storage: commit idempotent score penalty for room %s: %w", roomID, err)
+		}
+		return nil
+	}
+
+	result, err = tx.ExecContext(ctx,
+		`UPDATE users SET points = points - ? WHERE telegram_id = ?`, amount, int64(id))
+	if err != nil {
+		return fmt.Errorf("storage: apply score penalty to user %d: %w", id, err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("storage: inspect score update for user %d: %w", id, err)
+	}
+	if updated == 0 {
+		return fmt.Errorf("storage: apply score penalty to user %d: %w", id, ErrUserNotFound)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("storage: commit score penalty for room %s: %w", roomID, err)
+	}
+	return nil
+}
+
 // SetCooldown 设置跨局加入冷却截止时刻（UTC RFC3339；docs 游戏流程设计.md
 // §退出约束）。零值 until 清除冷却。
 func (r *UserRepository) SetCooldown(ctx context.Context, id game.UserID, until time.Time) error {

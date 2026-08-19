@@ -363,6 +363,9 @@ func TestGovernanceHostDissolve(t *testing.T) {
 		if !ok || se.Amount != 10 {
 			t.Fatalf("应扣 10 分：%v", effects)
 		}
+		if se.User != 1 {
+			t.Fatalf("扣分对象 = %d, want host 1", se.User)
+		}
 		if !containsKey(messageKeys(effects), GovernanceHostDissolvePassedMessageKey) {
 			t.Errorf("缺少 governance.host_dissolve.passed 公告：%v", effects)
 		}

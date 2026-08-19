@@ -76,6 +76,9 @@ func (DissolveEffect) effect() {}
 // 扣 10 分）：由接线层落库，game 核心只表达契约（积分 ≤9 禁止由
 // HostDissolveCommand.HostScore 入参校验）。
 type ScorePenaltyEffect struct {
+	// User 是需要扣分的用户；由领域效果携带，避免房间在接线层先
+	// 解散后无法再解析当前房主（docs §积分系统）。
+	User   UserID
 	Amount int
 }
 
@@ -371,7 +374,7 @@ func (r reducer) hostDissolve(st State, cmd HostDissolveCommand) (State, []Effec
 	effects := []Effect{
 		passed,
 		DissolveEffect{Reason: HostForced},
-		ScorePenaltyEffect{Amount: 10},
+		ScorePenaltyEffect{User: cmd.Meta.Actor, Amount: 10},
 	}
 	return next, effects, nil
 }
