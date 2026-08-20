@@ -31,6 +31,12 @@ func (f *fakeSender) Send(_ context.Context, chatID int64, text string) error {
 	return f.err
 }
 
+// SendTemporary 模拟临时消息发送（测试中与 Send 行为一致）。
+func (f *fakeSender) SendTemporary(_ context.Context, chatID int64, text string, _ time.Duration) error {
+	f.sent = append(f.sent, sendRecord{chatID: chatID, text: text})
+	return f.err
+}
+
 type fakeCreate struct {
 	err    error
 	called int

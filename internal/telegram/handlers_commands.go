@@ -72,6 +72,9 @@ type (
 	// MarkdownV2 文本，由接线层按默认 MarkdownV2 解析模式发送。
 	ReplySender interface {
 		Send(ctx context.Context, chatID int64, text string) error
+		// SendTemporary 发送一条临时消息并在 delay 后自动删除。
+		// 用于错误反馈等无需持久保留的提示。
+		SendTemporary(ctx context.Context, chatID int64, text string, delay time.Duration) error
 	}
 )
 
@@ -233,7 +236,7 @@ func (h *CommandsHandler) reply(ctx context.Context, chatID int64, key string, d
 
 // replyInvalid 回复输入无效（error.invalid_input，Detail 原文经转义）。
 func (h *CommandsHandler) replyInvalid(ctx context.Context, in CommandInput) error {
-	return h.reply(ctx, in.ChatID, "error.invalid_input", map[string]any{"Detail": in.Text})
+	return h.replyTemporary(ctx, in.ChatID, "error.invalid_input", map[string]any{"Detail": in.Text})
 }
 
 // replyFeedback 把服务返回的领域错误映射为状态反馈文案（无房/死亡/
@@ -266,7 +269,16 @@ func (h *CommandsHandler) replyFeedback(ctx context.Context, in CommandInput, er
 	case errors.Is(err, game.ErrCooldownActive):
 		key = "commands.cooldown"
 	}
-	return h.reply(ctx, in.ChatID, key, nil)
+	return h.replyTemporary(ctx, in.ChatID, key, nil)
+}
+
+// replyTemporary 渲染一条临时回复（错误反馈等），发送后自动删除。
+func (h *CommandsHandler) replyTemporary(ctx context.Context, chatID int64, key string, data map[string]any) error {
+	text, err := h.renderer.Render(key, data)
+	if err != nil {
+		return err
+	}
+	return h.sender.SendTemporary(ctx, chatID, text, 5*time.Second)
 }
 
 // replyHelp 拼接命令清单 + 新手规则 + 首次发言 3 秒自毁提示后发送

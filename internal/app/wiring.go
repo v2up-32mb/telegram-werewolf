@@ -1379,6 +1379,34 @@ func (s replySender) Send(ctx context.Context, chatID int64, text string) error 
 	return s.w.enqueue("cmd", "", chatID, telegram.OpSendText, telegram.Params{ChatID: chatID, Text: text}, outbox.PriorityNormal, "")
 }
 
+// SendTemporary 直接通过 Telegram Client 发送消息并获取 message ID，
+// 然后调度延迟自动删除。绕过 Outbox 以获取 message ID（Outbox 的
+// SendFunc 不返回已发送消息 ID）。
+func (s replySender) SendTemporary(ctx context.Context, chatID int64, text string, delay time.Duration) error {
+	client, err := s.w.client()
+	if err != nil {
+		// 降级：Client 不可用时走常规发送（不自动删除）
+		return s.w.enqueue("cmd", "", chatID, telegram.OpSendText, telegram.Params{ChatID: chatID, Text: text}, outbox.PriorityNormal, "")
+	}
+	sent, err := client.SendMessage(ctx, telegram.SendMessageParams{
+		ChatID:    chatID,
+		Text:      text,
+		ParseMode: "MarkdownV2",
+	})
+	if err != nil {
+		// 发送失败时走 Outbox 重试链路作为兜底
+		return s.w.enqueue("cmd", "", chatID, telegram.OpSendText, telegram.Params{ChatID: chatID, Text: text}, outbox.PriorityNormal, "")
+	}
+	// 调度延迟删除
+	msgID := sent.MessageID
+	time.AfterFunc(delay, func() {
+		_ = s.w.enqueue("del:tmp", "", chatID, telegram.OpDeleteMessage,
+			telegram.Params{ChatID: chatID, MessageID: msgID},
+			outbox.PriorityLow, "")
+	})
+	return nil
+}
+
 // roomSettingsAdapter 实现 game.SettingsRepository。
 type roomSettingsAdapter struct{ repo *storage.RoomRepository }
 
