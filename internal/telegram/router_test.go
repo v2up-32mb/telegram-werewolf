@@ -186,8 +186,10 @@ func TestRouterRejectedCallbackStillAcked(t *testing.T) {
 func TestRouterInitialOffset(t *testing.T) {
 	r, store, _ := newTestRouter(16)
 	store.load = 42
-	if got := r.InitialOffset(context.Background()); got != 43 {
-		t.Fatalf("InitialOffset = %d, want 43（Load+1）", got)
+	// go-telegram/bot 内部 getUpdates 使用 lastUpdateID+1 作为 offset，
+	// 因此 InitialOffset 返回水位本身，由库内部 +1。
+	if got := r.InitialOffset(context.Background()); got != 42 {
+		t.Fatalf("InitialOffset = %d, want 42（Load，库内部 +1）", got)
 	}
 }
 

@@ -27,13 +27,15 @@ func NewRouter(dedupe *Deduper, store CursorStore, tokens *CallbackManager) *Rou
 	return &Router{dedupe: dedupe, store: store, tokens: tokens}
 }
 
-// InitialOffset 返回传给 Long Polling 的初始偏移（已 ACK 水位 + 1）。
+// InitialOffset 返回传给 Long Polling 的初始偏移（已 ACK 水位）。
+// go-telegram/bot 内部在 getUpdates 时使用 lastUpdateID+1 作为 offset，
+// 因此这里返回水位本身，由库内部 +1 跳过已确认的 update。
 func (r *Router) InitialOffset(ctx context.Context) int64 {
 	hw, err := r.store.Load(ctx)
 	if err != nil {
 		return 0
 	}
-	return hw + 1
+	return hw
 }
 
 // Dispatch 单 dispatcher 处理一个 update：
