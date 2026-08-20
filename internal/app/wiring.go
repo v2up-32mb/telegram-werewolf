@@ -1648,6 +1648,10 @@ func callbackFeedback(err error) string {
 		return "该操作已确认锁定"
 	case errors.Is(err, game.ErrNotHost):
 		return "仅房主可操作"
+	case errors.Is(err, game.ErrRoomNotFull):
+		return "房间尚未满员，无法开始"
+	case errors.Is(err, game.ErrRematchWindowOpen):
+		return "退出窗口尚未结束，请稍后再开始"
 	default:
 		return "操作失败，请重试"
 	}
@@ -1694,7 +1698,7 @@ func (w *Wiring) handleCommand(ctx context.Context, cmd game.Command) error {
 				return nil
 			}
 			if res.Err != nil {
-				w.log.Warn("app: start game rejected", "room", string(roomID), "error", res.Err)
+				w.log.Warn("app: start game rejected", "room", string(roomID), "error", res.Err, "error_type", fmt.Sprintf("%T", res.Err))
 				// B3：开局被领域拒绝（人数不足/退出窗口未过等）时退役刚绑定
 				// 的 Actor——否则大厅房间挂着 actor != nil，SweepIdle 永久跳过
 				// 它，Actor goroutine 泄漏。
