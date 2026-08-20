@@ -166,6 +166,26 @@ func TestClientAnswerCallbackQuery(t *testing.T) {
 	}
 }
 
+func TestClientSetMyCommands(t *testing.T) {
+	f := newFakeAPI(t, testToken)
+	c := mustClient(t, f)
+	f.reset() // 忽略 NewClient 初始化 getMe
+	commands := BotCommands()
+	if err := c.SetMyCommands(context.Background(), commands); err != nil {
+		t.Fatalf("SetMyCommands: %v", err)
+	}
+	recs := f.requestsFor("setMyCommands")
+	if len(recs) != 1 {
+		t.Fatalf("setMyCommands requests = %d, want 1", len(recs))
+	}
+	raw := recs[0].Form["commands"]
+	for _, want := range []string{"start", "newgame", "join", "role", "score", "leave", "help", "rank"} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("commands JSON 缺 %q, raw=%s", want, raw)
+		}
+	}
+}
+
 func TestClientForbiddenError(t *testing.T) {
 	f := newFakeAPI(t, testToken)
 	f.behavior["sendMessage"] = apiBehavior{ErrorCode: http.StatusForbidden, Description: "Forbidden: bot was blocked by the user"}

@@ -166,6 +166,13 @@ func (a *App) Run(ctx context.Context) error {
 	if err := a.scanLeftoverAborts(ctx); err != nil {
 		a.log.Error("app: startup abort scan failed", "error", err)
 	}
+	// 注册斜杠命令菜单（setMyCommands）：用户输入 / 时自动弹出命令提示。
+	// 失败只记日志不阻断启动（网络抖动下次重启会重新注册）。
+	if a.wiring != nil {
+		if err := a.wiring.RegisterCommands(ctx); err != nil {
+			a.log.Error("app: register bot commands failed", "error", err)
+		}
+	}
 	if a.health != nil {
 		go func() {
 			if err := a.health.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

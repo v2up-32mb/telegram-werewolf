@@ -101,6 +101,8 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		})
 	case "deleteMessage", "answerCallbackQuery":
 		writeAPIResult(w, true)
+	case "setMyCommands":
+		writeAPIResult(w, true)
 	default:
 		http.Error(w, "unknown method "+method, http.StatusBadRequest)
 	}

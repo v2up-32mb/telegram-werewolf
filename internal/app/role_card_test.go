@@ -47,6 +47,9 @@ func (c *roleCardClient) UploadPhoto(_ context.Context, p telegram.UploadPhotoPa
 func (c *roleCardClient) AnswerCallbackQuery(context.Context, telegram.AnswerCallbackParams) error {
 	return nil
 }
+func (c *roleCardClient) SetMyCommands(context.Context, []telegram.BotCommand) error {
+	return nil
+}
 
 // TestRoleCardUploadThenCacheHit 验证：首次 send_role_card 上传并缓存
 // file_id，后续命中缓存直发（不重复上传）。

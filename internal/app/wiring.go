@@ -220,6 +220,20 @@ func (w *Wiring) IssueButton(owner game.UserID, action, target string, phase gam
 // TextHandler 返回玩家文本命令处理器（/start /newgame /join /role /score /leave /help /rank）。
 func (w *Wiring) TextHandler() TextHandler { return w.text }
 
+// RegisterCommands 通过 setMyCommands API 向 Telegram 注册斜杠命令菜单，
+// 使用户在聊天框输入 / 时自动弹出命令提示。启动时调用一次。
+func (w *Wiring) RegisterCommands(ctx context.Context) error {
+	client, err := w.client()
+	if err != nil {
+		return err
+	}
+	if err := client.SetMyCommands(ctx, telegram.BotCommands()); err != nil {
+		return fmt.Errorf("app: register bot commands: %w", err)
+	}
+	w.log.Info("app: bot commands registered", "count", len(telegram.BotCommands()))
+	return nil
+}
+
 // productionSend 是 Outbox 底层发送器：断言 Payload 为 telegram.Params
 // 后按 Operation 经 Transport 分派（未知 op 返回明确错误，交由 Outbox
 // 重试策略处理）。带 Period 的主消息：send 后回填消息 ID，edit 复用该 ID

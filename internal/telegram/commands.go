@@ -127,3 +127,19 @@ func commandKind(raw string) (CommandKind, bool) {
 func IsPrivateChat(u Update) bool {
 	return u.Message != nil && u.Message.ChatID == u.Message.UserID
 }
+
+// BotCommands 返回全部斜杠命令的 BotCommand 列表，供 setMyCommands
+// 注册到 Telegram（用户输入 / 时自动弹出命令提示）。
+// 描述文案与 i18n active.zh-CN.yaml 保持一致。
+func BotCommands() []BotCommand {
+	return []BotCommand{
+		{Command: "start", Description: "主菜单"},
+		{Command: "newgame", Description: "创建房间（可选自定义房间码）"},
+		{Command: "join", Description: "加入房间（房间码或邀请链接）"},
+		{Command: "role", Description: "查看身份"},
+		{Command: "score", Description: "查看积分"},
+		{Command: "leave", Description: "退出房间"},
+		{Command: "help", Description: "帮助（命令清单+新手规则）"},
+		{Command: "rank", Description: "排行榜"},
+	}
+}

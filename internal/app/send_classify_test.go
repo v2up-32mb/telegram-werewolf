@@ -39,6 +39,9 @@ func (c *classifyClient) UploadPhoto(context.Context, telegram.UploadPhotoParams
 func (c *classifyClient) AnswerCallbackQuery(context.Context, telegram.AnswerCallbackParams) error {
 	return nil
 }
+func (c *classifyClient) SetMyCommands(context.Context, []telegram.BotCommand) error {
+	return nil
+}
 
 func newClassifyWiring(t *testing.T, cl telegram.Client) *Wiring {
 	t.Helper()

@@ -99,6 +99,12 @@ type AnswerCallbackParams struct {
 	ShowAlert       bool
 }
 
+// BotCommand 是 setMyCommands 的单条命令描述（自持 DTO，不依赖框架类型）。
+type BotCommand struct {
+	Command     string
+	Description string
+}
+
 // Client 是 Telegram Bot API 的领域边界接口。
 //
 // 业务层只依赖本接口与上述自持 DTO，不直接接触框架类型。
@@ -112,6 +118,8 @@ type Client interface {
 	// 返回消息含新 file_id；Item 2 / docs 技术选型.md §10）。
 	UploadPhoto(ctx context.Context, p UploadPhotoParams) (*SentMessage, error)
 	AnswerCallbackQuery(ctx context.Context, p AnswerCallbackParams) error
+	// SetMyCommands 注册斜杠命令菜单（用户输入 / 时自动提示）。
+	SetMyCommands(ctx context.Context, commands []BotCommand) error
 }
 
 // clientOptions 是 NewClient 的自持选项。
@@ -270,6 +278,23 @@ func (c *clientImpl) AnswerCallbackQuery(ctx context.Context, p AnswerCallbackPa
 		Text:            p.Text,
 		ShowAlert:       p.ShowAlert,
 	})
+	if err != nil {
+		return wrapTelegramError(err)
+	}
+	return nil
+}
+
+// SetMyCommands 注册斜杠命令菜单（setMyCommands API），使用户在聊天
+// 输入 / 时看到命令提示。启动时调用一次即可。
+func (c *clientImpl) SetMyCommands(ctx context.Context, commands []BotCommand) error {
+	apiCmds := make([]models.BotCommand, 0, len(commands))
+	for _, cmd := range commands {
+		apiCmds = append(apiCmds, models.BotCommand{
+			Command:     cmd.Command,
+			Description: cmd.Description,
+		})
+	}
+	_, err := c.b.SetMyCommands(ctx, &bot.SetMyCommandsParams{Commands: apiCmds})
 	if err != nil {
 		return wrapTelegramError(err)
 	}

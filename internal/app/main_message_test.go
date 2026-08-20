@@ -48,6 +48,9 @@ func (c *fakeIDClient) UploadPhoto(context.Context, telegram.UploadPhotoParams) 
 func (c *fakeIDClient) AnswerCallbackQuery(context.Context, telegram.AnswerCallbackParams) error {
 	return nil
 }
+func (c *fakeIDClient) SetMyCommands(context.Context, []telegram.BotCommand) error {
+	return nil
+}
 
 // TestProductionSendMainEditChain 验证 productionSend 对 Period 消息：
 // 首条 send 回填消息 ID，后续 edit 复用该 ID。
