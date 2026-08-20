@@ -61,7 +61,10 @@ type Wiring struct {
 	reg           *liveRegistry
 	repo          *storage.RoomRepository
 	users         *storage.UserRepository
-	now           func() time.Time
+	// settleStore 是结算持久化 seam（I1 重试测试注入用）；Attach 默认创建
+	// 真实 repo，测试可替换为"首次失败后续成功"的包装实现。
+	settleStore settleStore
+	now         func() time.Time
 
 	commands *telegram.CommandsHandler
 	handler  *callbackHandler
@@ -144,6 +147,7 @@ func (w *Wiring) Attach(db *sql.DB, sched *outbox.Scheduler) error {
 
 	w.repo = storage.NewRoomRepository(db)
 	w.users = storage.NewUserRepository(db)
+	w.settleStore = storage.NewSettlementRepository(db)
 	w.reg = newLiveRegistry()
 
 	registry := roomRegistryAdapter{repo: w.repo}
@@ -975,19 +979,39 @@ func (a joinStoreAdapter) Join(ctx context.Context, roomID game.RoomID, user gam
 	return game.Seat(seat), nil
 }
 
+// userStore 是用户持久化最小 seam（I2 fail-closed 测试注入用）。
+// UserRepository 满足该接口；测试可用 fake 注入验证 DB 故障分支。
+type userStore interface {
+	CooldownUntil(ctx context.Context, id game.UserID) (time.Time, error)
+	Upsert(ctx context.Context, id game.UserID, nickname string) error
+}
+
+// settleStore 是 SettleGame 的最小 seam（I1 重试测试注入用）。
+type settleStore interface {
+	SettleGame(ctx context.Context, result storage.GameResult) error
+}
+
 // createRoomAdapter 包装 game.LobbyService：成功后持久化（users upser +
 // rooms 建行）并登记注册表，同时把服务 effects + 面板放进待发桥。
 type createRoomAdapter struct {
 	lobby game.LobbyService
 	reg   *liveRegistry
 	repo  *storage.RoomRepository
-	users *storage.UserRepository
+	users userStore
 	now   func() time.Time
 }
 
 func (a createRoomAdapter) CreateRoom(ctx context.Context, req game.CreateRoomRequest) (game.State, []game.Effect, error) {
 	// I2：冷却期间不能创建新房间（docs 游戏流程设计.md §退出约束）。
-	if until, err := a.users.CooldownUntil(ctx, req.Host); err == nil && until.After(a.now()) {
+	// fail-closed：查冷却出错（DB 故障等）时拒绝创建，宁可保守不放行，
+	// 防止玩家绕过退出冷却刷局。
+	until, err := a.users.CooldownUntil(ctx, req.Host)
+	if err != nil && !errors.Is(err, storage.ErrUserNotFound) {
+		// fail-closed：DB 故障（非"用户不存在"的正常首次建房）时保守拒绝，
+		// 防止绕过冷却刷局。
+		return game.State{}, nil, fmt.Errorf("app: cooldown lookup (create): %w", err)
+	}
+	if until.After(a.now()) {
 		return game.State{}, nil, game.ErrCooldownActive
 	}
 	st, fx, err := a.lobby.CreateRoom(ctx, req)
@@ -1020,13 +1044,19 @@ func (a createRoomAdapter) CreateRoom(ctx context.Context, req game.CreateRoomRe
 type joinRoomAdapter struct {
 	join  game.JoinService
 	reg   *liveRegistry
-	users *storage.UserRepository
+	users userStore
 	now   func() time.Time
 }
 
 func (a joinRoomAdapter) Apply(ctx context.Context, req game.JoinRequest) (game.JoinResult, []game.Effect, error) {
 	// I2：冷却期间不能加入其他房间（docs 游戏流程设计.md §退出约束）。
-	if until, err := a.users.CooldownUntil(ctx, req.Actor); err == nil && until.After(a.now()) {
+	// fail-closed：查冷却出错时拒绝加入，防止绕过冷却刷局。
+	until, err := a.users.CooldownUntil(ctx, req.Actor)
+	if err != nil && !errors.Is(err, storage.ErrUserNotFound) {
+		// fail-closed：DB 故障（非"用户不存在"的正常首次入房）时保守拒绝。
+		return game.JoinResult{}, nil, fmt.Errorf("app: cooldown lookup (join): %w", err)
+	}
+	if until.After(a.now()) {
 		return game.JoinResult{}, nil, game.ErrCooldownActive
 	}
 	res, fx, err := a.join.Apply(ctx, req)

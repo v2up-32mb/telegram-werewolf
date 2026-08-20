@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -88,8 +89,63 @@ func TestCooldownBlocksCreateAndJoin(t *testing.T) {
 	}
 }
 
-// TestCooldownPersistedViaEffect 是 I2 红测：CooldownEffect 经导演 fanOut
-// 持久化 users.cooldown_until。
+// failUserStore 是 I2 fail-closed 红测的 fake：CooldownUntil 恒返回
+// 非 ErrUserNotFound 的 DB 故障错误，验证适配器 fail-closed（拒绝建房/入房）
+// 而不是静默放行。
+type failUserStore struct{}
+
+func (failUserStore) CooldownUntil(context.Context, game.UserID) (time.Time, error) {
+	return time.Time{}, errors.New("storage: db connection lost")
+}
+
+func (failUserStore) Upsert(context.Context, game.UserID, string) error { return nil }
+
+// TestCooldownFailClosed 是 I2 红测：冷却查询遇到 DB 故障（非"用户不存在"）
+// 时，create/join 适配器必须 fail-closed 拒绝，而不是静默放行绕过冷却。
+func TestCooldownFailClosed(t *testing.T) {
+	ctx := context.Background()
+	reg := newLiveRegistry()
+	bad := failUserStore{}
+	now := time.Now
+
+	c := createRoomAdapter{
+		lobby: game.LobbyService{}, // 不应被触达：fail-closed 在冷却查询即返回
+		reg:   reg,
+		users: bad,
+		now:   now,
+	}
+	_, _, err := c.CreateRoom(ctx, game.CreateRoomRequest{Host: 9001, CustomCode: "FC01"})
+	if err == nil {
+		t.Fatal("create: 冷却查询 DB 故障时应 fail-closed 拒绝，got nil")
+	}
+	if errors.Is(err, game.ErrCooldownActive) {
+		t.Fatal("create: 故障不应被当作冷却中处理")
+	}
+
+	j := joinRoomAdapter{join: game.JoinService{}, reg: reg, users: bad, now: now}
+	_, _, err = j.Apply(ctx, game.JoinRequest{Actor: 9001, RoomID: "FC01"})
+	if err == nil {
+		t.Fatal("join: 冷却查询 DB 故障时应 fail-closed 拒绝，got nil")
+	}
+	if errors.Is(err, game.ErrCooldownActive) {
+		t.Fatal("join: 故障不应被当作冷却中处理")
+	}
+}
+
+// TestCooldownUnknownUserAllowed 是 I2 配套红测：ErrUserNotFound（用户首次
+// 建房/入房，无行）不是故障——CooldownUntil 应返回该哨兵错误而非 DB 故障，
+// 且适配器对该哨兵放行（不误伤新用户）。
+func TestCooldownUnknownUserAllowed(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	real := storage.NewUserRepository(db)
+	if _, err := real.CooldownUntil(ctx, 9002); !errors.Is(err, storage.ErrUserNotFound) {
+		t.Fatalf("CooldownUntil(9002) = %v, want ErrUserNotFound（新用户无行≠故障）", err)
+	}
+}
 func TestCooldownPersistedViaEffect(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)

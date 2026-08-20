@@ -359,8 +359,10 @@ func (w *Wiring) buttonsFor(e game.MessageEffect, st game.State, v viewerCtx) (*
 	}
 }
 
-// persistSettlement 把结算结果落库（I3：战报/积分/统计/清 active；docs
-// 技术选型.md §8.3 正常结算单事务）。
+// persistSettlement 把结算结果落库（I1：战报/积分/统计/清 active；docs
+// 技术选型.md §8.3 正常结算单事务）。失败时同步重试（SQLite 事务失败
+// = 未写，重试安全，不会双写积分），仍失败则告警日志 + 指标计数，
+// 避免静默丢失积分/战报（I1 断点：原实现失败仅 log 就放弃）。
 func (w *Wiring) persistSettlement(s game.Settlement) {
 	result := storage.GameResult{
 		RoomCode:   s.RoomID,
@@ -374,12 +376,29 @@ func (w *Wiring) persistSettlement(s game.Settlement) {
 			Died: p.Died, MaliciousExit: p.MaliciousExit,
 		})
 	}
-	if err := storage.NewSettlementRepository(w.db).SettleGame(context.Background(), result); err != nil {
-		w.log.Error("app: persist settlement", "room", string(s.RoomID), "error", err)
-		return
+	repo := w.settleStore
+	if repo == nil {
+		repo = storage.NewSettlementRepository(w.db)
 	}
-	// 房间保留在内存注册表供「再来一局」（Rematch → PhaseLobby，docs 游戏
-	// 流程设计.md §结算 5/6）；rooms 活跃行已由 SettleGame 单事务清除。
+	var err error
+	for attempt := 1; attempt <= 3; attempt++ {
+		err = repo.SettleGame(context.Background(), result)
+		if err == nil {
+			// 房间保留在内存注册表供「再来一局」（Rematch → PhaseLobby，
+			// docs 游戏流程设计.md §结算 5/6）；rooms 活跃行已由 SettleGame
+			// 单事务清除。
+			return
+		}
+		w.log.Warn("app: persist settlement attempt failed",
+			"room", string(s.RoomID), "attempt", attempt, "error", err)
+		if attempt < 3 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	// 最终失败：显式告警（不静默）。SQLite 本地文件事务失败通常意味着
+	// 磁盘/DB 损坏级问题，重试 3 次后放弃，Error 级日志供运维介入。
+	w.log.Error("app: persist settlement gave up after 3 attempts",
+		"room", string(s.RoomID), "error", err)
 }
 
 // settlementReportText 生成战报文本（胜方 + 全员身份翻牌 + 关键事件）。
