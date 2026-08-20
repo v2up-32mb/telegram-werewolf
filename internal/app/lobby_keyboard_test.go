@@ -34,7 +34,7 @@ func TestLobbyPanelUsesOpaqueInlineKeyboard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildPanel: %v", err)
 	}
-	if strings.Contains(text, "操作：") || strings.Contains(text, "开始游戏") || strings.Contains(text, "房间设置") || strings.Contains(text, "解散房间") {
+	if strings.Contains(text, "操作：") || strings.Contains(text, "开始游戏") || strings.Contains(text, "解散房间") {
 		t.Fatalf("面板正文仍包含按钮文案：%q", text)
 	}
 	if markup == nil || len(markup.Rows) != 1 || len(markup.Rows[0]) != 3 {

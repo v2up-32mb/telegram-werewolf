@@ -86,12 +86,17 @@ func (h *wiredHarness) db() *sql.DB {
 
 func recvAny(t *testing.T, rec *recordingSender, within time.Duration) outbox.Message {
 	t.Helper()
-	select {
-	case m := <-rec.ch:
-		return m
-	case <-time.After(within):
-		t.Fatalf("timeout waiting for outbox message")
-		return outbox.Message{}
+	for {
+		select {
+		case m := <-rec.ch:
+			if m.Operation == telegram.OpDeleteMessage {
+				continue // 跳过斜杠命令消息删除操作
+			}
+			return m
+		case <-time.After(within):
+			t.Fatalf("timeout waiting for outbox message")
+			return outbox.Message{}
+		}
 	}
 }
 
@@ -102,6 +107,9 @@ func recvUntil(t *testing.T, rec *recordingSender, n int, within time.Duration) 
 	for len(out) < n {
 		select {
 		case m := <-rec.ch:
+			if m.Operation == telegram.OpDeleteMessage {
+				continue // 跳过斜杠命令消息删除操作
+			}
 			out = append(out, m)
 		case <-time.After(time.Until(deadline)):
 			t.Fatalf("timeout: want %d messages, got %d", n, len(out))

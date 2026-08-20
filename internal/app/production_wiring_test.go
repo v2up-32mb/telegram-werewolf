@@ -67,6 +67,15 @@ func TestProductionBuildAnswersNewGameCommand(t *testing.T) {
 
 	select {
 	case m := <-rec.ch:
+		if m.Operation == telegram.OpDeleteMessage {
+			// 跳过斜杠命令消息删除，等待实际响应
+			select {
+			case m2 := <-rec.ch:
+				m = m2
+			case <-time.After(5 * time.Second):
+				t.Fatal("生产装配下 /newgame 未产生任何出站消息：命令消费仍为 P0 stub（接线缺失）")
+			}
+		}
 		if m.ChatID != 100 {
 			t.Errorf("出站消息 ChatID = %d, want 100（私聊 ChatID == UserID）", m.ChatID)
 		}

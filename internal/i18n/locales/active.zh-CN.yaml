@@ -311,6 +311,12 @@ settings.victory_slaughter: "屠城"
 settings.victory_side: "屠边"
 settings.back: "返回大厅"
 settings.toggle_updated: "✅ 设置已更新"
+settings.speech_mode_desc: "发言限时模式，固定限时到点强制结束，软限时超时后宽限"
+settings.fast_mode_desc: "开启后所有阶段时间减半（最少5秒）"
+settings.wolf_must_kill_desc: "狼人夜间是否允许空刀（不选择目标）"
+settings.reveal_role_desc: "玩家死亡后是否公开其真实身份"
+settings.witch_self_save_desc: "女巫首夜是否可以使用解药自救"
+settings.victory_mode_desc: "屠城=好人全灭狼人胜；屠边=神职或村民任一阵营全灭狼人胜"
 
 # 房间面板（面板由接线层从房间状态构建，参数全部经转义）
 panel.title: "🏠 房间面板"
@@ -325,5 +331,15 @@ panel.buttons_line: "操作：{{.Buttons}}"
 panel.button.start: "开始游戏"
 panel.button.settings: "房间设置"
 panel.button.dismiss: "解散房间"
-panel.settings_summary: "模式：{{.Victory}} · {{.Speech}} · 快速{{.FastMode}} · {{.WolfKill}} · 死讯{{.Reveal}} · 女巫{{.WitchSave}}"
+panel.button.confirm_dissolve: "确认解散"
+panel.button.cancel: "取消"
+panel.settings_summary: |
+  ⚙️ 房间设置
+  胜负模式：{{.Victory}}
+  发言模式：{{.Speech}}
+  快速模式：{{.FastMode}}
+  狼人空刀：{{.WolfKill}}
+  死讯身份：{{.Reveal}}
+  女巫自救：{{.WitchSave}}
+panel.dissolve_confirm: "⚠️ 确认解散房间？游戏未开始，解散不扣积分。"
 panel.dissolved: "🏠 房间 {{.room_code}} 已解散。"

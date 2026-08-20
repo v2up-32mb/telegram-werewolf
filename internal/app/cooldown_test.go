@@ -28,6 +28,9 @@ func recvContaining(t *testing.T, rec *recordingSender, within time.Duration, co
 	for time.Now().Before(deadline) {
 		select {
 		case m := <-rec.ch:
+			if m.Operation == telegram.OpDeleteMessage {
+				continue // 跳过斜杠命令消息删除操作
+			}
 			if p, ok := m.Payload.(telegram.Params); ok && bytes.Contains([]byte(p.Text), []byte(contains)) {
 				return
 			}

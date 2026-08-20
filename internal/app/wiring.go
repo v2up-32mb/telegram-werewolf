@@ -652,20 +652,21 @@ func (w *Wiring) buildSettingsPanel(roomID game.RoomID) (string, *telegram.Reply
 		return "", nil, err
 	}
 
-	// 设置项定义：label, target, 当前值文案
+	// 设置项定义：label, target, 当前值文案, 描述文案
 	type settingItem struct {
 		label   string
 		target  string
 		current string
+		desc    string
 	}
 
 	items := []settingItem{
-		{w.mustRender("settings.speech_mode"), "speech_mode", w.speechModeLabel(settings.SpeechMode)},
-		{w.mustRender("settings.fast_mode"), "fast_mode", w.boolLabel(settings.FastMode)},
-		{w.mustRender("settings.wolf_must_kill"), "wolf_must_kill", w.wolfKillLabel(settings.WolfMustKill)},
-		{w.mustRender("settings.reveal_role"), "reveal_role", w.revealLabel(settings.RevealRoleOnDeath)},
-		{w.mustRender("settings.witch_self_save"), "witch_self_save", w.witchSaveLabel(settings.WitchSelfSaveFirstNight)},
-		{w.mustRender("settings.victory_mode"), "victory_mode", w.victoryLabel(settings.Victory)},
+		{w.mustRender("settings.speech_mode"), "speech_mode", w.speechModeLabel(settings.SpeechMode), w.mustRender("settings.speech_mode_desc")},
+		{w.mustRender("settings.fast_mode"), "fast_mode", w.boolLabel(settings.FastMode), w.mustRender("settings.fast_mode_desc")},
+		{w.mustRender("settings.wolf_must_kill"), "wolf_must_kill", w.wolfKillLabel(settings.WolfMustKill), w.mustRender("settings.wolf_must_kill_desc")},
+		{w.mustRender("settings.reveal_role"), "reveal_role", w.revealLabel(settings.RevealRoleOnDeath), w.mustRender("settings.reveal_role_desc")},
+		{w.mustRender("settings.witch_self_save"), "witch_self_save", w.witchSaveLabel(settings.WitchSelfSaveFirstNight), w.mustRender("settings.witch_self_save_desc")},
+		{w.mustRender("settings.victory_mode"), "victory_mode", w.victoryLabel(settings.Victory), w.mustRender("settings.victory_mode_desc")},
 	}
 
 	var b strings.Builder
@@ -673,7 +674,9 @@ func (w *Wiring) buildSettingsPanel(roomID game.RoomID) (string, *telegram.Reply
 	b.WriteByte('\n')
 	for _, it := range items {
 		b.WriteString(it.label)
-		b.WriteString("：")
+		b.WriteString("（")
+		b.WriteString(it.desc)
+		b.WriteString("）：")
 		b.WriteString(it.current)
 		b.WriteByte('\n')
 	}
@@ -702,6 +705,42 @@ func (w *Wiring) buildSettingsPanel(roomID game.RoomID) (string, *telegram.Reply
 
 	markup := &telegram.ReplyMarkup{Rows: rows}
 	return b.String(), markup, nil
+}
+
+// buildDissolveConfirmPanel 构建解散确认面板（确认/取消按钮）。
+func (w *Wiring) buildDissolveConfirmPanel(roomID game.RoomID) (string, *telegram.ReplyMarkup, error) {
+	st, _, host, _, ok := w.reg.snapshot(roomID)
+	if !ok {
+		return "", nil, errors.New("app: dissolve confirm panel room not found")
+	}
+
+	text, err := w.renderer.Render("panel.dissolve_confirm", nil)
+	if err != nil {
+		text = "⚠️ 确认解散房间？"
+	}
+
+	confirmLabel, err := w.renderer.Render("panel.button.confirm_dissolve", nil)
+	if err != nil {
+		confirmLabel = "确认解散"
+	}
+	cancelLabel, err := w.renderer.Render("panel.button.cancel", nil)
+	if err != nil {
+		cancelLabel = "取消"
+	}
+
+	confirmTok, err := w.IssueButton(host, "host_dissolve", "confirm", game.PhaseLobby, st.PhaseVersion)
+	if err != nil {
+		return "", nil, fmt.Errorf("app: issue dissolve confirm button: %w", err)
+	}
+	cancelTok, err := w.IssueButton(host, "dissolve_cancel", "", game.PhaseLobby, st.PhaseVersion)
+	if err != nil {
+		return "", nil, fmt.Errorf("app: issue dissolve cancel button: %w", err)
+	}
+
+	markup := &telegram.ReplyMarkup{Rows: [][]telegram.InlineButton{
+		{{Text: confirmLabel, CallbackData: confirmTok}, {Text: cancelLabel, CallbackData: cancelTok}},
+	}}
+	return text, markup, nil
 }
 
 // mustRender 渲染 i18n key，失败时返回 key 本身（不阻断面板构建）。
@@ -1030,6 +1069,13 @@ func (h *textHandler) HandleText(ctx context.Context, u telegram.Update) error {
 		if err := h.w.applyEffects(ctx, "cmd:"+string(pf.roomID)+"@"+fmt.Sprint(pf.actor), pf.roomID, pf.actor, pf.effects); err != nil {
 			h.w.log.Error("app: flush pending effects", "room", string(pf.roomID), "error", err)
 		}
+	}
+	// 斜杠命令处理后删除原始命令消息，保持聊天整洁。
+	if isSlashCommand(in.Text) {
+		_ = h.w.enqueue("del:"+fmt.Sprintf("u%d", u.UpdateID), "", u.Message.ChatID,
+			telegram.OpDeleteMessage,
+			telegram.Params{ChatID: u.Message.ChatID, MessageID: u.Message.MessageID},
+			outbox.PriorityHigh, "")
 	}
 	return nil
 }
@@ -1392,6 +1438,45 @@ func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.Callbac
 	feedback := ""
 	if cmd, ok := telegram.CallbackCommand(payload, meta); ok {
 		if hostCmd, isHostDissolve := cmd.(game.HostDissolveCommand); isHostDissolve {
+			// 大厅阶段（actor==nil）解散：在此拦截确认流程
+			roomID, roomOk := h.w.reg.roomOf(act.Owner)
+			if roomOk {
+				_, actor, _, _, snapOk := h.w.reg.snapshot(roomID)
+				if snapOk && actor == nil {
+					if !hostCmd.Confirm {
+						// 第一次点击：编辑原面板为确认面板
+						text, markup, err := h.w.buildDissolveConfirmPanel(roomID)
+						if err != nil {
+							feedback = "面板加载失败"
+						} else {
+							h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
+								telegram.Params{ChatID: act.ChatID, MessageID: act.MessageID, Text: text, ReplyMarkup: markup},
+								outbox.PriorityHigh, "")
+						}
+						if act.CallbackQueryID != "" {
+							return h.w.answerCallback(act.CallbackQueryID, feedback)
+						}
+						return nil
+					}
+					// Confirm=true：真正解散，编辑原面板为已解散
+					if err := h.w.repo.RemoveRoom(ctx, roomID); err != nil {
+						h.w.log.Warn("app: lobby dissolve failed", "room", string(roomID), "error", err)
+						feedback = "解散失败，请重试"
+					} else {
+						h.w.reg.removeRoom(roomID)
+						h.w.log.Info("app: lobby dissolved by host", "room", string(roomID), "host", int64(meta.Actor))
+						text, _ := h.w.renderer.Render("panel.dissolved", map[string]any{"room_code": string(roomID)})
+						h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
+							telegram.Params{ChatID: act.ChatID, MessageID: act.MessageID, Text: text},
+							outbox.PriorityHigh, "")
+					}
+					if act.CallbackQueryID != "" {
+						return h.w.answerCallback(act.CallbackQueryID, feedback)
+					}
+					return nil
+				}
+			}
+			// 游戏中：走正常流程（带积分检查）
 			score, err := (scoreServiceAdapter{db: h.w.db}).Score(ctx, hostCmd.Meta.Actor)
 			if err != nil {
 				feedback = callbackFeedback(err)
@@ -1449,6 +1534,21 @@ func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.Callbac
 		}
 	} else if act.Action == "settings_back" {
 		// 返回大厅面板。
+		roomID, ok := h.w.reg.roomOf(act.Owner)
+		if !ok {
+			feedback = "房间不存在"
+		} else {
+			text, markup, err := h.w.buildPanel(roomID)
+			if err != nil {
+				feedback = "面板加载失败"
+			} else {
+				h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
+					telegram.Params{ChatID: act.ChatID, MessageID: act.MessageID, Text: text, ReplyMarkup: markup},
+					outbox.PriorityHigh, "")
+			}
+		}
+	} else if act.Action == "dissolve_cancel" {
+		// 取消解散，返回大厅面板。
 		roomID, ok := h.w.reg.roomOf(act.Owner)
 		if !ok {
 			feedback = "房间不存在"
@@ -1608,14 +1708,10 @@ func (w *Wiring) handleCommand(ctx context.Context, cmd game.Command) error {
 			// 大厅退出走 /leave 文本路径；回调版兜底 ACK。
 			return nil
 	case game.HostDissolveCommand:
-		// 大厅阶段房主解散：直接移除房间，无积分惩罚（游戏未开始）。
-		if err := w.repo.RemoveRoom(ctx, roomID); err != nil {
-			w.log.Warn("app: lobby dissolve failed", "room", string(roomID), "error", err)
-			return fmt.Errorf("app: dissolve room: %w", err)
-		}
-		w.reg.removeRoom(roomID)
-		w.log.Info("app: lobby dissolved by host", "room", string(roomID), "host", int64(meta.Actor))
-		return w.sendText(ctx, "cb", roomID, int64(meta.Actor), "panel.dissolved", map[string]any{"room_code": string(roomID)})
+		// 大厅阶段房主解散已在 callbackActionHandler 中拦截处理，
+		// 此路径不应到达（兜底 ACK）。
+		w.log.Warn("app: lobby dissolve reached handleCommand (should be handled in callback)", "room", string(roomID))
+		return nil
 	default:
 			w.log.Debug("app: lobby callback ignored", "room", string(roomID), "command", fmt.Sprintf("%T", cmd))
 			return nil
