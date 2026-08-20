@@ -334,7 +334,7 @@ func TestCommandsRole(t *testing.T) {
 }
 
 // TestCommandsNewGame 验证 /newgame：调用 CreateRoomService（自定义码
-// 透传）；已在房间反馈 commands.already_in_room；非法输入回复
+// 透传）；建房已在房间反馈 commands.host_in_room；非法输入回复
 // error.invalid_input 且不调用服务。
 func TestCommandsNewGame(t *testing.T) {
 	sender := &fakeSender{}
@@ -359,8 +359,8 @@ func TestCommandsNewGame(t *testing.T) {
 	if err := h.Handle(context.Background(), commandIn("/newgame", true)); err != nil {
 		t.Fatalf("/newgame(已在房): %v", err)
 	}
-	if len(sender.sent) != 1 || !strings.Contains(sender.sent[0].text, "已在房间") {
-		t.Errorf("已在房回复 = %q, want commands.already_in_room", sender.sent[0].text)
+	if len(sender.sent) != 1 || !strings.Contains(sender.sent[0].text, "已创建了一个房间") {
+		t.Errorf("已在房回复 = %q, want commands.host_in_room", sender.sent[0].text)
 	}
 
 	sender.sent = nil

@@ -32,6 +32,7 @@ const (
 	CommandDeadMessageKey            = "commands.dead"
 	CommandNoRoleYetMessageKey       = "commands.no_role_yet"
 	CommandAlreadyInRoomMessageKey   = "commands.already_in_room"
+	CommandHostInRoomMessageKey      = "commands.host_in_room"
 	CommandRoomFullMessageKey        = "commands.room_full"
 	CommandWrongPasswordMessageKey   = "commands.wrong_password"
 	CommandRoomNotFoundMessageKey    = "commands.room_not_found"
@@ -253,7 +254,7 @@ func (h *CommandsHandler) replyFeedback(ctx context.Context, in CommandInput, er
 		// /role 发牌前无身份；其他「阶段不允许」按同类文案反馈。
 		key = CommandNoRoleYetMessageKey
 	case errors.Is(err, game.ErrHostInRoom):
-		key = CommandAlreadyInRoomMessageKey
+		key = CommandHostInRoomMessageKey
 	case errors.Is(err, game.ErrAlreadyInRoom), errors.Is(err, game.ErrUserInRoom):
 		// 重复加入本房 / 已在其他进行中房间：明确「已在房间」反馈
 		//（Task 46 S7：此前未映射落入 error.generic）。
