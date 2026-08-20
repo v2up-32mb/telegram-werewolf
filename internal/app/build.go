@@ -177,6 +177,7 @@ func (n defaultAbortNotifier) NotifyAbort(_ context.Context, r AbortedRoom) erro
 	if len(players) == 0 {
 		players = []game.UserID{r.HostUserID}
 	}
+	text := fmt.Sprintf("⚠️ 房间 %s 因服务重启已中断，请重新创建房间。", string(r.Code))
 	for _, user := range players {
 		msg := outbox.Message{
 			CorrelationID: "abort:" + string(r.Code),
@@ -184,6 +185,7 @@ func (n defaultAbortNotifier) NotifyAbort(_ context.Context, r AbortedRoom) erro
 			ChatID:        outbox.ChatID(user),
 			Operation:     telegram.OpSendText,
 			Priority:      outbox.PriorityHigh,
+			Payload:       telegram.Params{ChatID: int64(user), Text: text},
 		}
 		if err := n.outbox.Enqueue(msg); err != nil {
 			return fmt.Errorf("app: enqueue abort notification to %d: %w", user, err)

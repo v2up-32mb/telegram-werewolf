@@ -1404,7 +1404,7 @@ func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.Callbac
 				feedback = "设置面板加载失败"
 			} else {
 				h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
-					telegram.Params{ChatID: act.ChatID, Text: text, ReplyMarkup: markup},
+					telegram.Params{ChatID: act.ChatID, MessageID: act.MessageID, Text: text, ReplyMarkup: markup},
 					outbox.PriorityHigh, "")
 			}
 		}
@@ -1424,7 +1424,7 @@ func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.Callbac
 					feedback = "设置面板刷新失败"
 				} else {
 					h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
-						telegram.Params{ChatID: act.ChatID, Text: text, ReplyMarkup: markup},
+						telegram.Params{ChatID: act.ChatID, MessageID: act.MessageID, Text: text, ReplyMarkup: markup},
 						outbox.PriorityHigh, "")
 					feedback = h.w.mustRender("settings.toggle_updated")
 				}
@@ -1441,7 +1441,7 @@ func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.Callbac
 				feedback = "面板加载失败"
 			} else {
 				h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
-					telegram.Params{ChatID: act.ChatID, Text: text, ReplyMarkup: markup},
+					telegram.Params{ChatID: act.ChatID, MessageID: act.MessageID, Text: text, ReplyMarkup: markup},
 					outbox.PriorityHigh, "")
 			}
 		}
