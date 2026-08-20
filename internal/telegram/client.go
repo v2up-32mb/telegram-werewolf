@@ -167,10 +167,13 @@ func (c *clientImpl) GetMe(ctx context.Context) (*Me, error) {
 }
 
 func (c *clientImpl) SendMessage(ctx context.Context, p SendMessageParams) (*SentMessage, error) {
-	msg, err := c.b.SendMessage(ctx, &bot.SendMessageParams{
+	botParams := &bot.SendMessageParams{
 		ChatID: p.ChatID, Text: p.Text, ParseMode: models.ParseMode(p.ParseMode),
-		ReplyMarkup: toInlineKeyboard(p.ReplyMarkup),
-	})
+	}
+	if p.ReplyMarkup != nil {
+		botParams.ReplyMarkup = toInlineKeyboard(p.ReplyMarkup)
+	}
+	msg, err := c.b.SendMessage(ctx, botParams)
 	if err != nil {
 		return nil, wrapTelegramError(err)
 	}
