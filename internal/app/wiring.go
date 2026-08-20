@@ -598,6 +598,23 @@ func (w *Wiring) buildPanel(roomID game.RoomID) (string, *telegram.ReplyMarkup, 
 	b.WriteByte('\n')
 	b.WriteString(phase)
 	b.WriteByte('\n')
+	// 设置摘要行
+	settings := st.Settings
+	if settings == (game.RoomSettings{}) {
+		settings = game.DefaultRoomSettings()
+	}
+	summary, err := w.renderer.Render("panel.settings_summary", map[string]any{
+		"Victory":   w.victoryLabel(settings.Victory),
+		"Speech":    w.speechModeLabel(settings.SpeechMode),
+		"FastMode":  w.boolLabel(settings.FastMode),
+		"WolfKill":  w.wolfKillLabel(settings.WolfMustKill),
+		"Reveal":    w.revealLabel(settings.RevealRoleOnDeath),
+		"WitchSave": w.witchSaveLabel(settings.WitchSelfSaveFirstNight),
+	})
+	if err == nil {
+		b.WriteString(summary)
+		b.WriteByte('\n')
+	}
 	b.WriteString(header)
 	if len(lines) > 0 {
 		b.WriteByte('\n')
@@ -1590,7 +1607,16 @@ func (w *Wiring) handleCommand(ctx context.Context, cmd game.Command) error {
 		case game.LeaveGameCommand:
 			// 大厅退出走 /leave 文本路径；回调版兜底 ACK。
 			return nil
-		default:
+	case game.HostDissolveCommand:
+		// 大厅阶段房主解散：直接移除房间，无积分惩罚（游戏未开始）。
+		if err := w.repo.RemoveRoom(ctx, roomID); err != nil {
+			w.log.Warn("app: lobby dissolve failed", "room", string(roomID), "error", err)
+			return fmt.Errorf("app: dissolve room: %w", err)
+		}
+		w.reg.removeRoom(roomID)
+		w.log.Info("app: lobby dissolved by host", "room", string(roomID), "host", int64(meta.Actor))
+		return w.sendText(ctx, "cb", roomID, int64(meta.Actor), "panel.dissolved", map[string]any{"room_code": string(roomID)})
+	default:
 			w.log.Debug("app: lobby callback ignored", "room", string(roomID), "command", fmt.Sprintf("%T", cmd))
 			return nil
 		}
