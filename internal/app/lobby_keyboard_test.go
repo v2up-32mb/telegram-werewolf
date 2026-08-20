@@ -131,18 +131,22 @@ func TestSettingsCallbackReportsNotAvailable(t *testing.T) {
 		t.Fatalf("settings callback: %v", err)
 	}
 
-	var gotNotice bool
-	for i := 0; i < 2; i++ {
-		msg := <-rec.ch
-		if msg.Operation != telegram.OpSendText {
-			continue
+	// M2：设置未开放反馈走 answerCallback 顶部通知（docs 阶段消息设计.md
+	// §9：短按钮反馈经顶部通知，show_alert=false），不再发私聊文本。
+	// settings 回调只产出一条 OpAnswerCallback（无额外 sendText）。
+	select {
+	case msg := <-rec.ch:
+		if msg.Operation != telegram.OpAnswerCallback {
+			t.Fatalf("settings callback op = %s, want %s", msg.Operation, telegram.OpAnswerCallback)
 		}
 		params, ok := msg.Payload.(telegram.Params)
-		if ok && strings.Contains(params.Text, "尚未开放") && strings.Contains(params.Text, "未修改") {
-			gotNotice = true
+		if !ok {
+			t.Fatalf("settings callback payload = %T, want telegram.Params", msg.Payload)
 		}
-	}
-	if !gotNotice {
-		t.Fatal("settings callback did not send honest not-available notice")
+		if !strings.Contains(params.Text, "尚未开放") || !strings.Contains(params.Text, "未修改") {
+			t.Fatalf("settings callback text = %q, want honest not-available notice", params.Text)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("settings callback did not answerCallback with honest not-available notice")
 	}
 }

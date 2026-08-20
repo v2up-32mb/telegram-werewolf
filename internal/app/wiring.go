@@ -1252,8 +1252,13 @@ func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.Callbac
 		}
 	} else if act.Action == "settings" {
 		// 设置编辑表单尚未纳入 B1 的接线边界；按钮必须给出诚实反馈，
-		// 不能静默吞掉未知动作或伪造“设置已更新”。
-		if err := h.w.sendText(ctx, "cb:"+fmt.Sprint(act.UpdateID), "", int64(act.Owner), "settings.not_available", nil); err != nil {
+		// 不能静默吞掉未知动作或伪造“设置已更新”。反馈走 answerCallback
+		// 顶部通知（docs 阶段消息设计.md §9：短按钮反馈经顶部通知，
+		// show_alert=false），不发私聊文本。
+		msg, err := h.w.renderer.Render("settings.not_available", nil)
+		if err == nil {
+			feedback = msg
+		} else {
 			feedback = "设置入口暂不可用"
 		}
 	} else if err := h.w.director.handleAction(ctx, act); err != nil {

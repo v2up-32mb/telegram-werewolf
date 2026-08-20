@@ -361,8 +361,8 @@ func (w *Wiring) buttonsFor(e game.MessageEffect, st game.State, v viewerCtx) (*
 
 // persistSettlement 把结算结果落库（I1：战报/积分/统计/清 active；docs
 // 技术选型.md §8.3 正常结算单事务）。失败时同步重试（SQLite 事务失败
-// = 未写，重试安全，不会双写积分），仍失败则告警日志 + 指标计数，
-// 避免静默丢失积分/战报（I1 断点：原实现失败仅 log 就放弃）。
+// = 未写，重试安全，不会双写积分），仍失败则告警日志，避免静默丢失
+// 积分/战报（I1 断点：原实现失败仅 log 就放弃）。
 func (w *Wiring) persistSettlement(s game.Settlement) {
 	result := storage.GameResult{
 		RoomCode:   s.RoomID,
