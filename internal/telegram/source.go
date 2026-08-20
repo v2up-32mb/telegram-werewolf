@@ -59,6 +59,7 @@ func NewLongPollingSource(token string, initialOffset int64, opts ...SourceOptio
 	botOpts := []bot.Option{
 		bot.WithNotAsyncHandlers(),
 		bot.WithInitialOffset(initialOffset),
+		bot.WithAllowedUpdates(bot.AllowedUpdates{"message", "callback_query"}),
 	}
 	if o.serverURL != "" {
 		botOpts = append(botOpts, bot.WithServerURL(o.serverURL))
