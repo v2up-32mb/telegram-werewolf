@@ -63,10 +63,11 @@ type SendMessageParams struct {
 
 // EditMessageParams 是 editMessageText 参数。
 type EditMessageParams struct {
-	ChatID    int64
-	MessageID int
-	Text      string
-	ParseMode string
+	ChatID      int64
+	MessageID   int
+	Text        string
+	ParseMode   string
+	ReplyMarkup *ReplyMarkup
 }
 
 // DeleteMessageParams 是 deleteMessage 参数。
@@ -206,9 +207,13 @@ func toInlineKeyboard(rm *ReplyMarkup) *models.InlineKeyboardMarkup {
 }
 
 func (c *clientImpl) EditMessageText(ctx context.Context, p EditMessageParams) (*SentMessage, error) {
-	msg, err := c.b.EditMessageText(ctx, &bot.EditMessageTextParams{
+	botParams := &bot.EditMessageTextParams{
 		ChatID: p.ChatID, MessageID: p.MessageID, Text: p.Text, ParseMode: models.ParseMode(p.ParseMode),
-	})
+	}
+	if p.ReplyMarkup != nil {
+		botParams.ReplyMarkup = toInlineKeyboard(p.ReplyMarkup)
+	}
+	msg, err := c.b.EditMessageText(ctx, botParams)
 	if err != nil {
 		return nil, wrapTelegramError(err)
 	}

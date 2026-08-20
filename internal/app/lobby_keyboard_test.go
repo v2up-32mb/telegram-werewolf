@@ -116,37 +116,54 @@ func TestApplyEffectsLobbyPanelCarriesInlineKeyboard(t *testing.T) {
 	}
 }
 
-func TestSettingsCallbackReportsNotAvailable(t *testing.T) {
+func TestSettingsCallbackShowsPanel(t *testing.T) {
 	w, rec, sched := newWiringSched(t, 16)
 	defer func() { _ = sched.Close(context.Background()) }()
+
+	// 创建房间使 settings 回调能找到 roomID
+	st := lobbyKeyboardState()
+	w.reg.create(st, st.Lobby.Owner, w.now())
 
 	err := w.ActionHandler().Handle(context.Background(), telegram.CallbackAction{
 		UpdateID:        77,
 		Owner:           7001,
 		Action:          "settings",
 		CallbackQueryID: "cq-settings",
+		ChatID:          7001,
+		MessageID:       100,
 		ReceivedAt:      time.Now(),
 	})
 	if err != nil {
 		t.Fatalf("settings callback: %v", err)
 	}
 
-	// M2：设置未开放反馈走 answerCallback 顶部通知（docs 阶段消息设计.md
-	// §9：短按钮反馈经顶部通知，show_alert=false），不再发私聊文本。
-	// settings 回调只产出一条 OpAnswerCallback（无额外 sendText）。
-	select {
-	case msg := <-rec.ch:
-		if msg.Operation != telegram.OpAnswerCallback {
-			t.Fatalf("settings callback op = %s, want %s", msg.Operation, telegram.OpAnswerCallback)
+	// settings 回调现在产出 OpEditMessage（编辑面板展示设置 keyboard）
+	// + OpAnswerCallback（顶部通知）。
+	var gotEdit, gotAnswer bool
+	for i := 0; i < 2; i++ {
+		select {
+		case msg := <-rec.ch:
+			params, ok := msg.Payload.(telegram.Params)
+			if !ok {
+				t.Fatalf("payload = %T, want telegram.Params", msg.Payload)
+			}
+			switch msg.Operation {
+			case telegram.OpEditMessage:
+				gotEdit = true
+				if params.ReplyMarkup == nil || len(params.ReplyMarkup.Rows) < 2 {
+					t.Fatalf("settings panel markup missing, rows = %v", params.ReplyMarkup)
+				}
+			case telegram.OpAnswerCallback:
+				gotAnswer = true
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("settings callback did not produce expected messages")
 		}
-		params, ok := msg.Payload.(telegram.Params)
-		if !ok {
-			t.Fatalf("settings callback payload = %T, want telegram.Params", msg.Payload)
-		}
-		if !strings.Contains(params.Text, "尚未开放") || !strings.Contains(params.Text, "未修改") {
-			t.Fatalf("settings callback text = %q, want honest not-available notice", params.Text)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("settings callback did not answerCallback with honest not-available notice")
+	}
+	if !gotEdit {
+		t.Fatal("expected OpEditMessage for settings panel")
+	}
+	if !gotAnswer {
+		t.Fatal("expected OpAnswerCallback for settings callback")
 	}
 }

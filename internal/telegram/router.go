@@ -126,6 +126,8 @@ type CallbackAction struct {
 	PhaseVersion    uint64
 	ReceivedAt      time.Time
 	CallbackQueryID string // B3：answerCallbackQuery 必答（docs §9）
+	ChatID          int64  // 按钮所在消息的聊天 ID（设置面板编辑用）
+	MessageID       int    // 按钮所在消息的 ID（设置面板编辑用）
 }
 
 // routeCallback 校验回调 token 并返回领域动作。
@@ -143,6 +145,8 @@ func (r *Router) routeCallback(u Update) (CallbackAction, bool) {
 		PhaseVersion:    payload.PhaseVersion,
 		ReceivedAt:      u.ReceivedAt,
 		CallbackQueryID: u.CallbackQuery.ID,
+		ChatID:          u.CallbackQuery.ChatID,
+		MessageID:       u.CallbackQuery.MessageID,
 	}, true
 }
 

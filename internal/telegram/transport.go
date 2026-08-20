@@ -85,7 +85,7 @@ func (t *Transport) Send(ctx context.Context, op string, p Params) error {
 		_, err := t.client.SendMessage(ctx, SendMessageParams{ChatID: p.ChatID, Text: p.Text, ParseMode: parseMode, ReplyMarkup: p.ReplyMarkup})
 		return err
 	case OpEditMessage:
-		_, err := t.client.EditMessageText(ctx, EditMessageParams{ChatID: p.ChatID, MessageID: p.MessageID, Text: p.Text, ParseMode: parseMode})
+		_, err := t.client.EditMessageText(ctx, EditMessageParams{ChatID: p.ChatID, MessageID: p.MessageID, Text: p.Text, ParseMode: parseMode, ReplyMarkup: p.ReplyMarkup})
 		return err
 	case OpDeleteMessage:
 		return t.client.DeleteMessage(ctx, DeleteMessageParams{ChatID: p.ChatID, MessageID: p.MessageID})

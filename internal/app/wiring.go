@@ -289,7 +289,7 @@ func (w *Wiring) productionSendMain(ctx context.Context, client telegram.Client,
 		if id == 0 {
 			// 防御：主消息尚未创建（不应发生）：退回 send，保证内容不丢。
 			sent, err := client.SendMessage(ctx, telegram.SendMessageParams{
-				ChatID: params.ChatID, Text: params.Text, ParseMode: params.ParseMode,
+				ChatID: params.ChatID, Text: params.Text, ParseMode: params.ParseMode, ReplyMarkup: params.ReplyMarkup,
 			})
 			if err != nil {
 				return classifyTelegramError(msg, err)
@@ -300,7 +300,7 @@ func (w *Wiring) productionSendMain(ctx context.Context, client telegram.Client,
 			return nil
 		}
 		if _, err := client.EditMessageText(ctx, telegram.EditMessageParams{
-			ChatID: params.ChatID, MessageID: int(id), Text: params.Text, ParseMode: params.ParseMode,
+			ChatID: params.ChatID, MessageID: int(id), Text: params.Text, ParseMode: params.ParseMode, ReplyMarkup: params.ReplyMarkup,
 		}); err != nil {
 			return classifyTelegramError(msg, err)
 		}
@@ -616,6 +616,132 @@ func sortedPlayers(ps []game.Player) []game.Player {
 		}
 	}
 	return out
+}
+
+// buildSettingsPanel 构建房间设置面板文本与 inline keyboard。
+// 每个设置项一行按钮，最后一行为"返回大厅"按钮。
+func (w *Wiring) buildSettingsPanel(roomID game.RoomID) (string, *telegram.ReplyMarkup, error) {
+	st, _, host, _, ok := w.reg.snapshot(roomID)
+	if !ok {
+		return "", nil, errors.New("app: settings panel room not found")
+	}
+	settings := st.Settings
+	if settings == (game.RoomSettings{}) {
+		settings = game.DefaultRoomSettings()
+	}
+
+	title, err := w.renderer.Render("settings.panel_title", nil)
+	if err != nil {
+		return "", nil, err
+	}
+
+	// 设置项定义：label, target, 当前值文案
+	type settingItem struct {
+		label   string
+		target  string
+		current string
+	}
+
+	items := []settingItem{
+		{w.mustRender("settings.speech_mode"), "speech_mode", w.speechModeLabel(settings.SpeechMode)},
+		{w.mustRender("settings.fast_mode"), "fast_mode", w.boolLabel(settings.FastMode)},
+		{w.mustRender("settings.wolf_must_kill"), "wolf_must_kill", w.wolfKillLabel(settings.WolfMustKill)},
+		{w.mustRender("settings.reveal_role"), "reveal_role", w.revealLabel(settings.RevealRoleOnDeath)},
+		{w.mustRender("settings.witch_self_save"), "witch_self_save", w.witchSaveLabel(settings.WitchSelfSaveFirstNight)},
+		{w.mustRender("settings.victory_mode"), "victory_mode", w.victoryLabel(settings.Victory)},
+	}
+
+	var b strings.Builder
+	b.WriteString(title)
+	b.WriteByte('\n')
+	for _, it := range items {
+		b.WriteString(it.label)
+		b.WriteString("：")
+		b.WriteString(it.current)
+		b.WriteByte('\n')
+	}
+
+	// 构建按钮
+	var rows [][]telegram.InlineButton
+	for _, it := range items {
+		label := it.label + "：" + it.current
+		tok, err := w.IssueButton(host, "settings_toggle", it.target, game.PhaseLobby, st.PhaseVersion)
+		if err != nil {
+			return "", nil, fmt.Errorf("app: issue settings toggle button %q: %w", it.target, err)
+		}
+		rows = append(rows, []telegram.InlineButton{{Text: label, CallbackData: tok}})
+	}
+
+	// 返回按钮
+	backLabel, err := w.renderer.Render("settings.back", nil)
+	if err != nil {
+		return "", nil, err
+	}
+	backTok, err := w.IssueButton(host, "settings_back", "", game.PhaseLobby, st.PhaseVersion)
+	if err != nil {
+		return "", nil, fmt.Errorf("app: issue settings back button: %w", err)
+	}
+	rows = append(rows, []telegram.InlineButton{{Text: backLabel, CallbackData: backTok}})
+
+	markup := &telegram.ReplyMarkup{Rows: rows}
+	return b.String(), markup, nil
+}
+
+// mustRender 渲染 i18n key，失败时返回 key 本身（不阻断面板构建）。
+func (w *Wiring) mustRender(key string) string {
+	s, err := w.renderer.Render(key, nil)
+	if err != nil {
+		return key
+	}
+	return s
+}
+
+func (w *Wiring) speechModeLabel(m game.SpeechMode) string {
+	switch m {
+	case game.SpeechFixed:
+		return w.mustRender("settings.speech_fixed")
+	case game.SpeechSoft:
+		return w.mustRender("settings.speech_soft")
+	default:
+		return w.mustRender("settings.speech_fixed")
+	}
+}
+
+func (w *Wiring) boolLabel(on bool) string {
+	if on {
+		return w.mustRender("settings.on")
+	}
+	return w.mustRender("settings.off")
+}
+
+func (w *Wiring) wolfKillLabel(mustKill bool) string {
+	if mustKill {
+		return w.mustRender("settings.wolf_must")
+	}
+	return w.mustRender("settings.wolf_allow_skip")
+}
+
+func (w *Wiring) revealLabel(reveal bool) string {
+	if reveal {
+		return w.mustRender("settings.reveal_yes")
+	}
+	return w.mustRender("settings.reveal_no")
+}
+
+func (w *Wiring) witchSaveLabel(canSave bool) string {
+	if canSave {
+		return w.mustRender("settings.witch_can_save")
+	}
+	return w.mustRender("settings.witch_cannot_save")
+}
+
+func (w *Wiring) victoryLabel(v game.VictoryMode) string {
+	switch v {
+	case game.VictorySide:
+		return w.mustRender("settings.victory_side")
+	default:
+		return w.mustRender("settings.victory_slaughter")
+	}
 }
 
 // wiringAudienceChat 把受众映射为 Telegram ChatID（MVP 私聊模型：
@@ -1268,15 +1394,56 @@ func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.Callbac
 			feedback = callbackFeedback(err)
 		}
 	} else if act.Action == "settings" {
-		// 设置编辑表单尚未纳入 B1 的接线边界；按钮必须给出诚实反馈，
-		// 不能静默吞掉未知动作或伪造“设置已更新”。反馈走 answerCallback
-		// 顶部通知（docs 阶段消息设计.md §9：短按钮反馈经顶部通知，
-		// show_alert=false），不发私聊文本。
-		msg, err := h.w.renderer.Render("settings.not_available", nil)
-		if err == nil {
-			feedback = msg
+		// 房间设置：编辑当前消息展示设置面板（inline keyboard 切换按钮）。
+		roomID, ok := h.w.reg.roomOf(act.Owner)
+		if !ok {
+			feedback = "房间不存在"
 		} else {
-			feedback = "设置入口暂不可用"
+			text, markup, err := h.w.buildSettingsPanel(roomID)
+			if err != nil {
+				feedback = "设置面板加载失败"
+			} else {
+				h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
+					telegram.Params{ChatID: act.ChatID, Text: text, ReplyMarkup: markup},
+					outbox.PriorityHigh, "")
+			}
+		}
+	} else if act.Action == "settings_toggle" {
+		// 切换某个设置项。
+		roomID, ok := h.w.reg.roomOf(act.Owner)
+		if !ok {
+			feedback = "房间不存在"
+		} else {
+			newSettings, err := h.w.applySettingsToggle(ctx, roomID, act.Owner, act.Target, meta)
+			if err != nil {
+				feedback = callbackFeedback(err)
+			} else {
+				h.w.reg.updateSettings(roomID, newSettings)
+				text, markup, err := h.w.buildSettingsPanel(roomID)
+				if err != nil {
+					feedback = "设置面板刷新失败"
+				} else {
+					h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
+						telegram.Params{ChatID: act.ChatID, Text: text, ReplyMarkup: markup},
+						outbox.PriorityHigh, "")
+					feedback = h.w.mustRender("settings.toggle_updated")
+				}
+			}
+		}
+	} else if act.Action == "settings_back" {
+		// 返回大厅面板。
+		roomID, ok := h.w.reg.roomOf(act.Owner)
+		if !ok {
+			feedback = "房间不存在"
+		} else {
+			text, markup, err := h.w.buildPanel(roomID)
+			if err != nil {
+				feedback = "面板加载失败"
+			} else {
+				h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
+					telegram.Params{ChatID: act.ChatID, Text: text, ReplyMarkup: markup},
+					outbox.PriorityHigh, "")
+			}
 		}
 	} else if err := h.w.director.handleAction(ctx, act); err != nil {
 		feedback = "操作失败，请重试"
@@ -1299,6 +1466,55 @@ func (w *Wiring) answerCallback(callbackQueryID, text string) error {
 		Priority:      outbox.PriorityHigh,
 		Payload:       telegram.Params{CallbackQueryID: callbackQueryID, Text: text},
 	})
+}
+
+// applySettingsToggle 切换某个设置项并调用 SettingsService 持久化。
+// 返回更新后的 RoomSettings。
+func (w *Wiring) applySettingsToggle(ctx context.Context, roomID game.RoomID, actor game.UserID, target string, meta game.CommandMeta) (game.RoomSettings, error) {
+	st, _, _, _, ok := w.reg.snapshot(roomID)
+	if !ok {
+		return game.RoomSettings{}, errors.New("app: room not found")
+	}
+	settings := st.Settings
+	if settings == (game.RoomSettings{}) {
+		settings = game.DefaultRoomSettings()
+	}
+
+	switch target {
+	case "speech_mode":
+		if settings.SpeechMode == game.SpeechFixed {
+			settings.SpeechMode = game.SpeechSoft
+		} else {
+			settings.SpeechMode = game.SpeechFixed
+		}
+	case "fast_mode":
+		settings.FastMode = !settings.FastMode
+	case "wolf_must_kill":
+		settings.WolfMustKill = !settings.WolfMustKill
+	case "reveal_role":
+		settings.RevealRoleOnDeath = !settings.RevealRoleOnDeath
+	case "witch_self_save":
+		settings.WitchSelfSaveFirstNight = !settings.WitchSelfSaveFirstNight
+	case "victory_mode":
+		if settings.Victory == game.VictorySlaughter {
+			settings.Victory = game.VictorySide
+		} else {
+			settings.Victory = game.VictorySlaughter
+		}
+	default:
+		return game.RoomSettings{}, fmt.Errorf("app: unknown settings toggle %q", target)
+	}
+
+	cmd := game.SettingsCommand{
+		Meta:     meta,
+		RoomID:   roomID,
+		Settings: settings,
+	}
+	updated, _, err := w.settings.Apply(ctx, cmd)
+	if err != nil {
+		return game.RoomSettings{}, err
+	}
+	return updated, nil
 }
 
 // callbackFeedback 把领域拒绝映射为短顶部通知文案（docs §9 示例：
@@ -1484,5 +1700,14 @@ func (r *liveRegistry) updateState(code game.RoomID, st game.State) {
 	if lr, ok := r.rooms[code]; ok {
 		lr.st = st
 		lr.host = st.Lobby.Owner
+	}
+}
+
+// updateSettings 更新注册表中房间的设置快照（设置面板切换后同步）。
+func (r *liveRegistry) updateSettings(code game.RoomID, settings game.RoomSettings) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if lr, ok := r.rooms[code]; ok {
+		lr.st.Settings = settings
 	}
 }
