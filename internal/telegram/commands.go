@@ -1,6 +1,11 @@
 package telegram
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/v2up-32mb/telegram-werewolf/internal/i18n"
+)
 
 // 玩家文本命令解析（docs 游戏流程设计.md §一.6 创建入口、§命令清单）：
 // /start /newgame /join /role /score /leave /help 七大命令 + /rank 占位。
@@ -128,18 +133,36 @@ func IsPrivateChat(u Update) bool {
 	return u.Message != nil && u.Message.ChatID == u.Message.UserID
 }
 
-// BotCommands 返回全部斜杠命令的 BotCommand 列表，供 setMyCommands
-// 注册到 Telegram（用户输入 / 时自动弹出命令提示）。
-// 描述文案与 i18n active.zh-CN.yaml 保持一致。
-func BotCommands() []BotCommand {
-	return []BotCommand{
-		{Command: "start", Description: "主菜单"},
-		{Command: "newgame", Description: "创建房间（可选自定义房间码）"},
-		{Command: "join", Description: "加入房间（房间码或邀请链接）"},
-		{Command: "role", Description: "查看身份"},
-		{Command: "score", Description: "查看积分"},
-		{Command: "leave", Description: "退出房间"},
-		{Command: "help", Description: "帮助（命令清单+新手规则）"},
-		{Command: "rank", Description: "排行榜"},
+// botCommandDef 是一条斜杠命令的元数据（命令名 + i18n key）。
+type botCommandDef struct {
+	Command string
+	Key     string
+}
+
+// botCommandDefs 是全部斜杠命令的元数据列表，供 BotCommands 构建。
+// 描述文案经 i18n Renderer 从 active.zh-CN.yaml 的 bot_command.* key 渲染。
+var botCommandDefs = []botCommandDef{
+	{"start", "bot_command.start"},
+	{"newgame", "bot_command.newgame"},
+	{"join", "bot_command.join"},
+	{"role", "bot_command.role"},
+	{"score", "bot_command.score"},
+	{"leave", "bot_command.leave"},
+	{"help", "bot_command.help"},
+	{"rank", "bot_command.rank"},
+}
+
+// BotCommands 通过 i18n Renderer 渲染全部斜杠命令的 BotCommand 列表，
+// 供 setMyCommands 注册到 Telegram（用户输入 / 时自动弹出命令提示）。
+// 描述文案来自 active.zh-CN.yaml 的 bot_command.* key。
+func BotCommands(renderer *i18n.Renderer) ([]BotCommand, error) {
+	cmds := make([]BotCommand, 0, len(botCommandDefs))
+	for _, def := range botCommandDefs {
+		desc, err := renderer.RenderPlainText(def.Key)
+		if err != nil {
+			return nil, fmt.Errorf("telegram: render bot command %q: %w", def.Key, err)
+		}
+		cmds = append(cmds, BotCommand{Command: def.Command, Description: desc})
 	}
+	return cmds, nil
 }

@@ -41,3 +41,11 @@ func (r *Renderer) Render(messageKey string, data map[string]any) (string, error
 		TemplateData: escaped,
 	})
 }
+
+// RenderPlainText 按 messageKey 取文案并原样返回（不转义、不代入模板）。
+// 适用于 setMyCommands 等不需要 MarkdownV2 转义的场景。
+func (r *Renderer) RenderPlainText(messageKey string) (string, error) {
+	return r.localizer.Localize(&i18n.LocalizeConfig{
+		MessageID: messageKey,
+	})
+}

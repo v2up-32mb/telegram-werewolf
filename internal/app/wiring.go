@@ -227,10 +227,14 @@ func (w *Wiring) RegisterCommands(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := client.SetMyCommands(ctx, telegram.BotCommands()); err != nil {
+	commands, err := telegram.BotCommands(w.renderer)
+	if err != nil {
+		return fmt.Errorf("app: build bot commands: %w", err)
+	}
+	if err := client.SetMyCommands(ctx, commands); err != nil {
 		return fmt.Errorf("app: register bot commands: %w", err)
 	}
-	w.log.Info("app: bot commands registered", "count", len(telegram.BotCommands()))
+	w.log.Info("app: bot commands registered", "count", len(commands))
 	return nil
 }
 

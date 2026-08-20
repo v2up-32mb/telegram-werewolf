@@ -269,6 +269,16 @@ commands.invalid_room_code: "🔢 房间码格式无效（4～8 位字母数字�
 commands.wrong_password: "🔑 房间密码错误，请重试（不限次数）。"
 commands.cooldown: "⏳ 你处于恶意退出冷却中（10 分钟），冷却期间不能创建或加入房间。"
 
+# 斜杠命令描述（setMyCommands 注册；用户输入 / 时自动弹出提示）
+bot_command.start: "主菜单"
+bot_command.newgame: "创建房间（可选自定义房间码）"
+bot_command.join: "加入房间（房间码或邀请链接）"
+bot_command.role: "查看身份"
+bot_command.score: "查看积分"
+bot_command.leave: "退出房间"
+bot_command.help: "帮助（命令清单+新手规则）"
+bot_command.rank: "排行榜"
+
 # 大厅与加入（Task 46 生产接线补齐渲染键；参数经 Renderer 默认 MarkdownV2 转义）
 join.confirmed: "✅ 已加入房间 {{.room_code}}\n昵称：{{.nickname}}\n座位：{{.seat}}号"
 lobby.left: "🚪 已退出房间 {{.room_code}}"

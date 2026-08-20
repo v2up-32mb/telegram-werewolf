@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/v2up-32mb/telegram-werewolf/internal/i18n"
 )
 
 const testToken = "12345:TEST-TOKEN"
@@ -170,7 +172,14 @@ func TestClientSetMyCommands(t *testing.T) {
 	f := newFakeAPI(t, testToken)
 	c := mustClient(t, f)
 	f.reset() // 忽略 NewClient 初始化 getMe
-	commands := BotCommands()
+	renderer, err := i18n.NewRenderer("zh-CN")
+	if err != nil {
+		t.Fatalf("NewRenderer: %v", err)
+	}
+	commands, err := BotCommands(renderer)
+	if err != nil {
+		t.Fatalf("BotCommands: %v", err)
+	}
 	if err := c.SetMyCommands(context.Background(), commands); err != nil {
 		t.Fatalf("SetMyCommands: %v", err)
 	}
@@ -182,6 +191,12 @@ func TestClientSetMyCommands(t *testing.T) {
 	for _, want := range []string{"start", "newgame", "join", "role", "score", "leave", "help", "rank"} {
 		if !strings.Contains(raw, want) {
 			t.Fatalf("commands JSON 缺 %q, raw=%s", want, raw)
+		}
+	}
+	// 验证描述来自 i18n（非空且包含中文）
+	for _, cmd := range commands {
+		if cmd.Description == "" {
+			t.Fatalf("command %q description is empty", cmd.Command)
 		}
 	}
 }
