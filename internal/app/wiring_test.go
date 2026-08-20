@@ -136,8 +136,8 @@ func TestWiringStartShowsMenu(t *testing.T) {
 func TestWiringNewGamePersistsRoomAndSendsPanel(t *testing.T) {
 	h := newWiredHarness(t, 16)
 	h.text(100, "/newgame ABC123", 1001)
-	msgs := recvUntil(t, h.rec, 2, 3*time.Second)
-	var panelText, doneText string
+	msgs := recvUntil(t, h.rec, 1, 3*time.Second)
+	var panelText string
 	for _, m := range msgs {
 		if m.ChatID != 100 {
 			t.Errorf("消息投递 ChatID = %d, want 100", m.ChatID)
@@ -145,12 +145,7 @@ func TestWiringNewGamePersistsRoomAndSendsPanel(t *testing.T) {
 		txt := textOf(m)
 		if strings.Contains(txt, "房间面板") {
 			panelText = txt
-		} else {
-			doneText = txt
 		}
-	}
-	if doneText == "" || !strings.Contains(doneText, "房间已创建") {
-		t.Errorf("缺少建房确认，got %q", doneText)
 	}
 	if !strings.Contains(panelText, "房间码：ABC123") || !strings.Contains(panelText, "人数：1/6") || !strings.Contains(panelText, "（房主）") {
 		t.Errorf("面板元素缺失，got %q", panelText)
@@ -170,7 +165,7 @@ func TestWiringNewGamePersistsRoomAndSendsPanel(t *testing.T) {
 func TestWiringJoinUpdatesPanelAndConfirmsJoiner(t *testing.T) {
 	h := newWiredHarness(t, 32)
 	h.text(100, "/newgame ABC234", 1001)
-	recvUntil(t, h.rec, 2, 3*time.Second)
+	recvUntil(t, h.rec, 1, 3*time.Second)
 
 	h.text(200, "/join ABC234", 1002)
 	// 加入后出站：join.confirmed(加入者)、panel(房主)。命令面不再发
@@ -214,7 +209,7 @@ func TestWiringScoreAndHelp(t *testing.T) {
 func TestWiringLeaveDissolvesEmptyRoom(t *testing.T) {
 	h := newWiredHarness(t, 16)
 	h.text(100, "/newgame ABC345", 1001)
-	recvUntil(t, h.rec, 2, 3*time.Second)
+	recvUntil(t, h.rec, 1, 3*time.Second)
 
 	h.text(100, "/leave", 1002)
 	msgs := recvUntil(t, h.rec, 1, 3*time.Second)

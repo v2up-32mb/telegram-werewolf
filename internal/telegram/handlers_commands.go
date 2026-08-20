@@ -159,17 +159,13 @@ func (h *CommandsHandler) handleNewGame(ctx context.Context, in CommandInput, cm
 	}
 	parsed.CommandID = in.CommandID
 	parsed.Actor = in.Actor
-	st, _, err := h.create.CreateRoom(ctx, parsed.Request())
+	_, _, err := h.create.CreateRoom(ctx, parsed.Request())
 	if err != nil {
 		return h.replyFeedback(ctx, in, err)
 	}
-	// 创建确认必须带房间码参数：由 Renderer 对 {{.RoomCode}} 做
-	// MarkdownV2 转义（Task 46 冒烟缺陷：旧模板字面 `<房间码>` 未
-	// 转义，真实 sendMessage 返回 400 "can't parse entities"，创建
-	// 确认被 Outbox 静默重试后丢弃）。
-	return h.reply(ctx, in.ChatID, CommandNewGameDoneMessageKey, map[string]any{
-		"RoomCode": string(st.RoomID),
-	})
+	// 创建确认由领域 LobbyPanel 面板承担（含房间码、成员、邀请链接），
+	// 不再单独发送 newgame_done 文案，避免双发消息。
+	return nil
 }
 
 // handleJoin 复用 FromJoinText 解析与 JoinInput.Request，单点调用加入

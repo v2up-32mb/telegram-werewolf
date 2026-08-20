@@ -1046,9 +1046,8 @@ func (a createRoomAdapter) CreateRoom(ctx context.Context, req game.CreateRoomRe
 		return st, nil, fmt.Errorf("app: persist create room: %w", err)
 	}
 	a.reg.create(st, req.Host, a.now())
-	// 只推面板：创建确认文案由 CommandsHandler 的 commands.newgame_done
-	// 承担（领域层 CreateRoom 已不再产出 lobby.created effect，Task 46
-	// 冒烟修复），避免同一次 /newgame 连发三条消息（S3 预期：确认+面板）。
+	// 只推面板：房间面板包含房间码、成员、邀请链接，承担全部创建反馈，
+	// 不再单独发送 newgame_done 确认文案，避免双发消息。
 	panel, err := game.NewMessageEffect(game.AudienceHost, game.LobbyPanelMessageKey, map[string]any{"room_code": string(st.RoomID)})
 	if err != nil {
 		return st, nil, err

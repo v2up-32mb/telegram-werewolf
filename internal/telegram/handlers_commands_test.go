@@ -344,17 +344,8 @@ func TestCommandsNewGame(t *testing.T) {
 	if create.req.Host != 1001 || create.req.CustomCode != "ABC123" {
 		t.Errorf("CreateRoom 请求 = %+v", create.req)
 	}
-	if len(sender.sent) != 1 || !strings.Contains(sender.sent[0].text, "创建") {
-		t.Errorf("建房回复 = %q, want commands.newgame_done", sender.sent[0].text)
-	}
-	// 缺陷回归：创建确认必须带房间码参数（旧模板字面 `<房间码>` 未转义
-	// 会在真实发送端 400 "can't parse entities"）；参数经 Renderer 渲染，
-	// 纯字母数字房间码无需转义，但不得再出现裸尖括号模板残留。
-	if !strings.Contains(sender.sent[0].text, "ABC123") {
-		t.Errorf("建房回复应含房间码参数 ABC123，got %q", sender.sent[0].text)
-	}
-	if strings.Contains(sender.sent[0].text, "<") || strings.Contains(sender.sent[0].text, ">") {
-		t.Errorf("建房回复不得含未转义尖括号（MarkdownV2 400 根因），got %q", sender.sent[0].text)
+	if len(sender.sent) != 0 {
+		t.Errorf("建房成功后命令面不应发送消息（由面板承担），got %d 条: %v", len(sender.sent), sender.sent)
 	}
 
 	sender.sent = nil
