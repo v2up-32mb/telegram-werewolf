@@ -64,7 +64,11 @@ type Wiring struct {
 	// settleStore 是结算持久化 seam（I1 重试测试注入用）；Attach 默认创建
 	// 真实 repo，测试可替换为"首次失败后续成功"的包装实现。
 	settleStore settleStore
-	now         func() time.Time
+	// limiter 是 Outbox 链的限速器（P1：SendTemporary 直发路径也必须
+	// 经过它，防止错误风暴绕过 Telegram flood 保护）。Build 装配时注入
+	// 与 limitedSend 同一实例；nil 时 SendTemporary 降级不限流。
+	limiter *outbox.Limiter
+	now     func() time.Time
 
 	commands *telegram.CommandsHandler
 	handler  *callbackHandler
@@ -192,6 +196,18 @@ func (w *Wiring) Attach(db *sql.DB, sched *outbox.Scheduler) error {
 // OutboxSender 返回真实 Outbox 底层发送器（outbox.Message →
 // telegram.Params → Transport → Client）。
 func (w *Wiring) OutboxSender() outbox.SendFunc { return w.sendFn }
+
+// replySenderForTest 暴露 replySender 供测试直接驱动 SendTemporary 等
+// 方法（replySender 为小写类型，外部测试文件无法构造）。
+func (w *Wiring) replySenderForTest() replySender { return replySender{w: w} }
+
+// AttachLimiter 注入与 Build 装配的 Outbox 链共享的限流器实例（P1）。
+// 必须在 Attach 之后、App 启动前调用；nil 无效果。
+func (w *Wiring) AttachLimiter(l *outbox.Limiter) {
+	if l != nil {
+		w.limiter = l
+	}
+}
 
 // CommandHandler 返回回调/房间命令处理器（Router 派发的领域命令）。
 func (w *Wiring) CommandHandler() CommandHandler { return w.handler }
@@ -1381,8 +1397,16 @@ func (s replySender) Send(ctx context.Context, chatID int64, text string) error 
 
 // SendTemporary 直接通过 Telegram Client 发送消息并获取 message ID，
 // 然后调度延迟自动删除。绕过 Outbox 以获取 message ID（Outbox 的
-// SendFunc 不返回已发送消息 ID）。
+// SendFunc 不返回已发送消息 ID），但必须先经过与 Outbox 链共享的同一
+// 限流器（P1）：错误风暴时临时消息同样受全局/单 Chat 速率约束，不得
+// 绕过 Telegram flood 保护。限流等待失败（ctx 取消）时返回错误，不降级
+// 直发；Client 不可用时才回退常规 Outbox 发送（不自动删除）。
 func (s replySender) SendTemporary(ctx context.Context, chatID int64, text string, delay time.Duration) error {
+	if s.w.limiter != nil {
+		if err := s.w.limiter.Wait(ctx, outbox.ChatID(chatID)); err != nil {
+			return fmt.Errorf("app: temporary send rate limited: %w", err)
+		}
+	}
 	client, err := s.w.client()
 	if err != nil {
 		// 降级：Client 不可用时走常规发送（不自动删除）
@@ -1476,10 +1500,10 @@ func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.Callbac
 						text, markup, err := h.w.buildDissolveConfirmPanel(roomID)
 						if err != nil {
 							feedback = "面板加载失败"
-						} else {
-							h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
-								telegram.Params{ChatID: act.ChatID, MessageID: act.MessageID, Text: text, ReplyMarkup: markup},
-								outbox.PriorityHigh, "")
+						} else if err := h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
+							telegram.Params{ChatID: act.ChatID, MessageID: act.MessageID, Text: text, ReplyMarkup: markup},
+							outbox.PriorityHigh, ""); err != nil {
+							feedback = "面板更新失败"
 						}
 						if act.CallbackQueryID != "" {
 							return h.w.answerCallback(act.CallbackQueryID, feedback)
@@ -1494,9 +1518,11 @@ func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.Callbac
 						h.w.reg.removeRoom(roomID)
 						h.w.log.Info("app: lobby dissolved by host", "room", string(roomID), "host", int64(meta.Actor))
 						text, _ := h.w.renderer.Render("panel.dissolved", map[string]any{"room_code": string(roomID)})
-						h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
+						if err := h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
 							telegram.Params{ChatID: act.ChatID, MessageID: act.MessageID, Text: text},
-							outbox.PriorityHigh, "")
+							outbox.PriorityHigh, ""); err != nil {
+							h.w.log.Warn("app: enqueue dissolved panel failed", "room", string(roomID), "error", err)
+						}
 					}
 					if act.CallbackQueryID != "" {
 						return h.w.answerCallback(act.CallbackQueryID, feedback)
@@ -1532,10 +1558,10 @@ func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.Callbac
 			text, markup, err := h.w.buildSettingsPanel(roomID)
 			if err != nil {
 				feedback = "设置面板加载失败"
-			} else {
-				h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
-					telegram.Params{ChatID: act.ChatID, MessageID: act.MessageID, Text: text, ReplyMarkup: markup},
-					outbox.PriorityHigh, "")
+			} else if err := h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
+				telegram.Params{ChatID: act.ChatID, MessageID: act.MessageID, Text: text, ReplyMarkup: markup},
+				outbox.PriorityHigh, ""); err != nil {
+				feedback = "设置面板更新失败"
 			}
 		}
 	} else if act.Action == "settings_toggle" {
@@ -1552,10 +1578,11 @@ func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.Callbac
 				text, markup, err := h.w.buildSettingsPanel(roomID)
 				if err != nil {
 					feedback = "设置面板刷新失败"
+				} else if err := h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
+					telegram.Params{ChatID: act.ChatID, MessageID: act.MessageID, Text: text, ReplyMarkup: markup},
+					outbox.PriorityHigh, ""); err != nil {
+					feedback = "设置面板刷新失败"
 				} else {
-					h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
-						telegram.Params{ChatID: act.ChatID, MessageID: act.MessageID, Text: text, ReplyMarkup: markup},
-						outbox.PriorityHigh, "")
 					feedback = h.w.mustRender("settings.toggle_updated")
 				}
 			}
@@ -1569,10 +1596,10 @@ func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.Callbac
 			text, markup, err := h.w.buildPanel(roomID)
 			if err != nil {
 				feedback = "面板加载失败"
-			} else {
-				h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
-					telegram.Params{ChatID: act.ChatID, MessageID: act.MessageID, Text: text, ReplyMarkup: markup},
-					outbox.PriorityHigh, "")
+			} else if err := h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
+				telegram.Params{ChatID: act.ChatID, MessageID: act.MessageID, Text: text, ReplyMarkup: markup},
+				outbox.PriorityHigh, ""); err != nil {
+				feedback = "面板更新失败"
 			}
 		}
 	} else if act.Action == "dissolve_cancel" {
@@ -1584,10 +1611,10 @@ func (h *callbackActionHandler) Handle(ctx context.Context, act telegram.Callbac
 			text, markup, err := h.w.buildPanel(roomID)
 			if err != nil {
 				feedback = "面板加载失败"
-			} else {
-				h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
-					telegram.Params{ChatID: act.ChatID, MessageID: act.MessageID, Text: text, ReplyMarkup: markup},
-					outbox.PriorityHigh, "")
+			} else if err := h.w.enqueue("cb:"+string(roomID), roomID, act.ChatID, telegram.OpEditMessage,
+				telegram.Params{ChatID: act.ChatID, MessageID: act.MessageID, Text: text, ReplyMarkup: markup},
+				outbox.PriorityHigh, ""); err != nil {
+				feedback = "面板更新失败"
 			}
 		}
 	} else if err := h.w.director.handleAction(ctx, act); err != nil {
@@ -1739,12 +1766,12 @@ func (w *Wiring) handleCommand(ctx context.Context, cmd game.Command) error {
 		case game.LeaveGameCommand:
 			// 大厅退出走 /leave 文本路径；回调版兜底 ACK。
 			return nil
-	case game.HostDissolveCommand:
-		// 大厅阶段房主解散已在 callbackActionHandler 中拦截处理，
-		// 此路径不应到达（兜底 ACK）。
-		w.log.Warn("app: lobby dissolve reached handleCommand (should be handled in callback)", "room", string(roomID))
-		return nil
-	default:
+		case game.HostDissolveCommand:
+			// 大厅阶段房主解散已在 callbackActionHandler 中拦截处理，
+			// 此路径不应到达（兜底 ACK）。
+			w.log.Warn("app: lobby dissolve reached handleCommand (should be handled in callback)", "room", string(roomID))
+			return nil
+		default:
 			w.log.Debug("app: lobby callback ignored", "room", string(roomID), "command", fmt.Sprintf("%T", cmd))
 			return nil
 		}

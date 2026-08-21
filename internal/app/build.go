@@ -301,6 +301,9 @@ func Build(ctx context.Context, cfg *config.Config, opts ...Option) (*App, error
 		if err := o.Wiring.Attach(db, scheduler); err != nil {
 			return nil, fmt.Errorf("app: attach wiring: %w", err)
 		}
+		// P1：把 Outbox 链的限流器共享给 Wiring——SendTemporary 直发路径
+		// 与常规消息走同一令牌桶，防止错误风暴绕过 Telegram flood 保护。
+		o.Wiring.AttachLimiter(limiter)
 		if o.OutboxSender == nil {
 			baseSend = o.Wiring.OutboxSender()
 		}
