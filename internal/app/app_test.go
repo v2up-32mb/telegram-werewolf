@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -54,13 +55,33 @@ func openTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func mustLogger(t *testing.T, buf *bytes.Buffer) *slog.Logger {
+func mustLogger(t *testing.T, buf io.Writer) *slog.Logger {
 	t.Helper()
 	lg, err := observability.NewLogger("text", buf)
 	if err != nil {
 		t.Fatalf("new logger: %v", err)
 	}
 	return lg
+}
+
+// syncBuffer 是并发安全的 bytes.Buffer 替身：App 后台 goroutine（消费
+// update 的 dispatch goroutine）与测试主 goroutine 可能同时经不同
+// Logger 实例写同一缓冲，race 检测下裸 bytes.Buffer 会报 DATA RACE。
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
 }
 
 // fakeSource 是 telegram.UpdateSource 的可控替身：Start 后关闭 started，

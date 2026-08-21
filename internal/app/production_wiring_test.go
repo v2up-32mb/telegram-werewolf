@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"strings"
@@ -27,7 +26,7 @@ func TestProductionBuildAnswersNewGameCommand(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var logBuf bytes.Buffer
+	var logBuf syncBuffer
 	db := openTestDB(t)
 	src := newFakeSource()
 	rec := newRecordingSender(16)
@@ -97,7 +96,7 @@ func TestAppIgnoresNilSourceErrors(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var logBuf bytes.Buffer
+	var logBuf syncBuffer
 	db := openTestDB(t)
 	src := newFakeSource()
 	rec := newRecordingSender(8)
