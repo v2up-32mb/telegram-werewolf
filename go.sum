@@ -674,8 +674,8 @@ github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e h1:JVG44RsyaB9T2KIHavM
 github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e/go.mod h1:RbqR21r5mrJuqunuUZ/Dhy/avygyECGrLceyNeo4LiM=
 github.com/yagipy/maintidx v1.0.0 h1:h5NvIsCz+nRDapQ0exNv4aJ0yXSI0420omVANTv3GJM=
 github.com/yagipy/maintidx v1.0.0/go.mod h1:0qNf/I/CCZXSMhsRsrEPDZ+DkekpKLXAJfsTACwgXLk=
-github.com/yeqown/go-qrcode/v2 v2.2.5 h1:HCOe2bSjkhZyYoyyNaXNzh4DJZll6inVJQQw+8228Zk=
-github.com/yeqown/go-qrcode/v2 v2.2.5/go.mod h1:uHpt9CM0V1HeXLz+Wg5MN50/sI/fQhfkZlOM+cOTHxw=
+github.com/yeqown/go-qrcode/v2 v2.3.0 h1:MMsNJgZrG95g8SOGGGaGcEZkOt1ByHjeCLSaymGm9aY=
+github.com/yeqown/go-qrcode/v2 v2.3.0/go.mod h1:WBrb4qHlVtggZtquxDyMq+Uv+R4xtUaz4laG2iqG34s=
 github.com/yeqown/reedsolomon v1.0.0 h1:x1h/Ej/uJnNu8jaX7GLHBWmZKCAWjEJTetkqaabr4B0=
 github.com/yeqown/reedsolomon v1.0.0/go.mod h1:P76zpcn2TCuL0ul1Fso373qHRc69LKwAw/Iy6g1WiiM=
 github.com/yeya24/promlinter v0.3.0 h1:JVDbMp08lVCP7Y6NP3qHroGAO6z2yGKQtS5JsjqtoFs=
